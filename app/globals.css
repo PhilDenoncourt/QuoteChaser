@@ -382,3 +382,48 @@ label {
 select.input {
   appearance: none;
 }
+
+
+.quote-card-compact {
+  gap: 10px;
+}
+
+.quote-card-footer-grid {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-bar + .filter-bar {
+  margin-top: 14px;
+}
+
+.filter-title {
+  margin-bottom: 8px;
+}
+
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.filter-chip.active {
+  background: #e8eefc;
+  border-color: #bfd2ff;
+  color: #1d4ed8;
+}

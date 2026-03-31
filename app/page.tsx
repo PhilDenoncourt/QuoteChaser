@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { FilterBar } from '@/components/filter-bar';
 import { MetricCard } from '@/components/metric-card';
+import { QueueSection } from '@/components/queue-section';
 import { QuoteCardList } from '@/components/quote-card-list';
-import { draftTemplates, getDashboardMetrics, getQuotes, sortQueue } from '@/lib/quotes';
+import { draftTemplates, filterQuotes, getDashboardMetrics, getQuotes, groupQueueByUrgency, sortQueue } from '@/lib/quotes';
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -9,12 +11,23 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 });
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ urgency?: string; status?: string }>;
+}) {
+  const params = (await searchParams) ?? {};
+  const urgencyFilter = params.urgency ?? 'all';
+  const statusFilter = params.status ?? 'all';
+
   const quotes = await getQuotes();
-  const queue = sortQueue(quotes.filter((quote) => !['won', 'lost'].includes(quote.status)));
+  const activeQuotes = quotes.filter((quote) => !['won', 'lost'].includes(quote.status));
+  const filteredQueue = sortQueue(filterQuotes(activeQuotes, { urgency: urgencyFilter, status: statusFilter }));
+  const grouped = groupQueueByUrgency(filteredQueue);
   const recent = [...quotes]
     .filter((quote) => quote.quoteAgeDays <= 3)
-    .sort((a, b) => a.quoteAgeDays - b.quoteAgeDays);
+    .sort((a, b) => a.quoteAgeDays - b.quoteAgeDays)
+    .slice(0, 4);
   const metrics = getDashboardMetrics(quotes);
 
   return (
@@ -41,17 +54,59 @@ export default async function HomePage() {
         <MetricCard label="Recently sent" value={metrics.recentCount} />
       </section>
 
-      <section className="grid mobile-stack">
-        <QuoteCardList
-          quotes={queue}
-          title="Follow-up queue"
-          subtitle="This is the main work surface: who needs attention now, and which quotes are slipping?"
+      <section className="card">
+        <h2>Work queue filters</h2>
+        <p className="small">Narrow the queue to what matters right now.</p>
+        <FilterBar
+          title="Urgency"
+          param="urgency"
+          active={urgencyFilter}
+          items={[
+            { label: 'All', value: 'all' },
+            { label: 'At risk', value: 'at_risk' },
+            { label: 'Due now', value: 'due_now' },
+            { label: 'Due soon', value: 'due_soon' },
+            { label: 'Healthy', value: 'healthy' },
+          ]}
         />
+        <FilterBar
+          title="Status"
+          param="status"
+          active={statusFilter}
+          items={[
+            { label: 'All', value: 'all' },
+            { label: 'Sent', value: 'sent' },
+            { label: 'Follow-up due', value: 'follow_up_due' },
+            { label: 'Waiting', value: 'waiting' },
+            { label: 'At risk', value: 'at_risk' },
+          ]}
+        />
+      </section>
+
+      <section className="grid mobile-stack">
+        <QueueSection urgency="at_risk" quotes={grouped.at_risk} />
+        <QueueSection urgency="due_now" quotes={grouped.due_now} />
+        <QueueSection urgency="due_soon" quotes={grouped.due_soon} />
+        {urgencyFilter === 'all' && statusFilter === 'all' ? (
+          <QueueSection urgency="healthy" quotes={grouped.healthy.slice(0, 3)} />
+        ) : null}
+
+        {!filteredQueue.length ? (
+          <div className="card">
+            <h2>Queue clear</h2>
+            <p className="small">No quotes match the current filters. Try switching back to All, or add a new quote.</p>
+            <div className="actions actions-stack-mobile" style={{ marginTop: 12 }}>
+              <Link className="button" href="/quotes/new">Add new quote</Link>
+              <Link className="button secondary" href="/">Reset filters</Link>
+            </div>
+          </div>
+        ) : null}
 
         <QuoteCardList
           quotes={recent}
           title="Recently sent quotes"
           subtitle="Fresh estimates that should stay visible before they go cold."
+          compact
         />
 
         <div className="card" id="drafts">
@@ -59,7 +114,7 @@ export default async function HomePage() {
           <p className="small">These will become AI-assisted drafts backed by quote context in a later milestone.</p>
           <div className="card-list">
             {draftTemplates.map((draft) => (
-              <div key={draft.title} className="quote-card static-card">
+              <div key={draft.title} className="quote-card static-card quote-card-compact">
                 <h3>{draft.title}</h3>
                 <p className="small">{draft.text}</p>
               </div>

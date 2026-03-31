@@ -27,10 +27,17 @@ export function computeUrgency(quote: Quote): UrgencyState {
   if (quote.status === 'won' || quote.status === 'lost') return 'healthy';
 
   const daysUntil = diffDaysUntil(quote.nextFollowUpAt);
-  if (daysUntil === null) return 'healthy';
+  const daysSinceTouch = quote.lastContactAt ? diffDays(quote.lastContactAt) : null;
+
+  if (daysUntil === null) {
+    if (daysSinceTouch !== null && daysSinceTouch >= 7) return 'at_risk';
+    return 'healthy';
+  }
+
   if (daysUntil < 0) return 'at_risk';
   if (daysUntil === 0) return 'due_now';
   if (daysUntil <= 1) return 'due_soon';
+  if (daysSinceTouch !== null && daysSinceTouch >= 7) return 'at_risk';
   return 'healthy';
 }
 
@@ -102,11 +109,36 @@ export function getDashboardMetrics(quotes: QuoteWithDerived[]) {
   };
 }
 
+export function filterQuotes(
+  quotes: QuoteWithDerived[],
+  filters: { urgency?: string; status?: string },
+) {
+  return quotes.filter((quote) => {
+    if (filters.urgency && filters.urgency !== 'all' && quote.urgency !== filters.urgency) return false;
+    if (filters.status && filters.status !== 'all' && quote.status !== filters.status) return false;
+    return true;
+  });
+}
+
+export function groupQueueByUrgency(quotes: QuoteWithDerived[]) {
+  return {
+    at_risk: quotes.filter((quote) => quote.urgency === 'at_risk'),
+    due_now: quotes.filter((quote) => quote.urgency === 'due_now'),
+    due_soon: quotes.filter((quote) => quote.urgency === 'due_soon'),
+    healthy: quotes.filter((quote) => quote.urgency === 'healthy'),
+  };
+}
+
 export function sortQueue(quotes: QuoteWithDerived[]) {
   const priority = { at_risk: 0, due_now: 1, due_soon: 2, healthy: 3 };
   return [...quotes].sort((a, b) => {
     const byPriority = priority[a.urgency] - priority[b.urgency];
     if (byPriority !== 0) return byPriority;
+
+    const aDays = a.daysUntilFollowUp ?? 999;
+    const bDays = b.daysUntilFollowUp ?? 999;
+    if (aDays !== bDays) return aDays - bDays;
+
     return b.estimateAmount - a.estimateAmount;
   });
 }

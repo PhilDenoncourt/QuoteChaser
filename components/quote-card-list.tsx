@@ -7,10 +7,12 @@ export function QuoteCardList({
   quotes,
   title,
   subtitle,
+  compact = false,
 }: {
   quotes: QuoteWithDerived[];
   title: string;
   subtitle: string;
+  compact?: boolean;
 }) {
   return (
     <div className="card">
@@ -18,7 +20,7 @@ export function QuoteCardList({
       <p className="small">{subtitle}</p>
       <div className="card-list">
         {quotes.map((quote) => (
-          <Link key={quote.id} href={`/quotes/${quote.id}`} className="quote-card">
+          <Link key={quote.id} href={`/quotes/${quote.id}`} className={`quote-card ${compact ? 'quote-card-compact' : ''}`}>
             <div className="quote-card-top">
               <div>
                 <strong>{quote.customerName}</strong>
@@ -41,7 +43,10 @@ export function QuoteCardList({
               </div>
             </div>
 
-            <div className="small quote-card-footer">{quote.lastTouchLabel}</div>
+            <div className="quote-card-footer-grid">
+              <div className="small quote-card-footer">{quote.lastTouchLabel}</div>
+              <div className="small quote-card-footer">{quote.quoteAgeDays}d old</div>
+            </div>
           </Link>
         ))}
       </div>
