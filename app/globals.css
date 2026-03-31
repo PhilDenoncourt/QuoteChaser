@@ -200,3 +200,161 @@ label {
   min-height: 120px;
   resize: vertical;
 }
+
+
+.mobile-shell {
+  max-width: 760px;
+}
+
+.mobile-hero {
+  gap: 16px;
+}
+
+.mobile-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mobile-stack {
+  gap: 16px;
+}
+
+.actions-stack-mobile {
+  flex-direction: column;
+}
+
+.actions-stack-mobile .button {
+  width: 100%;
+}
+
+.card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.quote-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.quote-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quote-card-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.quote-card-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quote-card-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.quote-card-footer {
+  padding-top: 4px;
+}
+
+.static-card {
+  cursor: default;
+}
+
+.detail-hero,
+.action-card {
+  position: relative;
+}
+
+.detail-stats {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-stat {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.detail-list {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-list div {
+  display: grid;
+  gap: 4px;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-item {
+  border-left: 3px solid var(--border);
+  padding-left: 12px;
+}
+
+.form-stack {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 768px) {
+  .mobile-shell {
+    max-width: 1120px;
+  }
+
+  .mobile-hero {
+    gap: 24px;
+  }
+
+  .mobile-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .mobile-stack {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+  }
+
+  .mobile-stack > .card:first-child,
+  .mobile-stack > .card:nth-child(2) {
+    grid-column: span 2;
+  }
+
+  .actions-stack-mobile {
+    flex-direction: row;
+  }
+
+  .actions-stack-mobile .button {
+    width: auto;
+  }
+
+  .detail-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .form-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-stack label:last-child {
+    grid-column: span 2;
+  }
+}
