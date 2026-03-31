@@ -174,3 +174,29 @@ body {
   gap: 16px;
   align-items: start;
 }
+
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+label {
+  display: block;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: white;
+}
+
+.textarea {
+  min-height: 120px;
+  resize: vertical;
+}

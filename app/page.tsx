@@ -1,4 +1,7 @@
-import { followUpDrafts, sampleQuotes } from '@/lib/sample-data';
+import Link from 'next/link';
+import { MetricCard } from '@/components/metric-card';
+import { QuoteTable } from '@/components/quote-table';
+import { draftTemplates, getDashboardMetrics, getQuotes, sortQueue } from '@/lib/quotes';
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -6,18 +9,13 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 });
 
-const statusClass: Record<string, string> = {
-  new: 'ok',
-  'follow-up-due': 'warning',
-  'at-risk': 'danger',
-  won: 'ok',
-  lost: 'danger',
-};
-
 export default function HomePage() {
-  const totalPipeline = sampleQuotes.reduce((sum, quote) => sum + quote.estimateAmount, 0);
-  const dueToday = sampleQuotes.filter((quote) => quote.status === 'follow-up-due').length;
-  const atRisk = sampleQuotes.filter((quote) => quote.status === 'at-risk').length;
+  const quotes = getQuotes();
+  const queue = sortQueue(quotes.filter((quote) => !['won', 'lost'].includes(quote.status)));
+  const recent = [...quotes]
+    .filter((quote) => quote.quoteAgeDays <= 3)
+    .sort((a, b) => a.quoteAgeDays - b.quoteAgeDays);
+  const metrics = getDashboardMetrics(quotes);
 
   return (
     <main className="container">
@@ -28,89 +26,36 @@ export default function HomePage() {
             <h1>Recover more jobs from estimates you already sent.</h1>
           </div>
           <div className="actions">
-            <a className="button" href="#queue">View follow-up queue</a>
+            <Link className="button" href="/quotes/new">Add new quote</Link>
             <a className="button secondary" href="#drafts">Review draft messages</a>
           </div>
         </div>
         <p>
-          This first scaffold focuses on the core workflow: track sent estimates, flag quotes going cold,
-          and make follow-up faster with simple templates and AI-assisted draft suggestions.
+          Milestone 1 is now shaping the app around the real product model: urgency-first dashboard,
+          quote detail routes, and shared quote logic that can later be backed by Postgres.
         </p>
       </section>
 
       <section className="kpis">
-        <div className="kpi">
-          <div className="label">Active pipeline</div>
-          <div className="value">{currency.format(totalPipeline)}</div>
-        </div>
-        <div className="kpi">
-          <div className="label">Needs follow-up today</div>
-          <div className="value">{dueToday}</div>
-        </div>
-        <div className="kpi">
-          <div className="label">At-risk quotes</div>
-          <div className="value">{atRisk}</div>
-        </div>
+        <MetricCard label="Active pipeline" value={currency.format(metrics.activePipelineValue)} />
+        <MetricCard label="Needs follow-up today" value={metrics.dueTodayCount} />
+        <MetricCard label="At-risk quotes" value={metrics.atRiskCount} />
+        <MetricCard label="Recently sent quotes" value={metrics.recentCount} />
       </section>
 
       <section className="grid two">
-        <div className="card" id="queue">
-          <h2>Follow-up queue</h2>
-          <p className="small">The first version of the dashboard should answer one question clearly: who needs attention today?</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Quote</th>
-                <th>Value</th>
-                <th>Status</th>
-                <th>Next touch</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sampleQuotes.map((quote) => (
-                <tr key={quote.id}>
-                  <td>
-                    <strong>{quote.customerName}</strong>
-                    <div className="small">{quote.jobAddress}</div>
-                    <div className="small">{quote.note}</div>
-                  </td>
-                  <td>{currency.format(quote.estimateAmount)}</td>
-                  <td>
-                    <span className={`badge ${statusClass[quote.status]}`}>
-                      {quote.status.replace(/-/g, ' ')}
-                    </span>
-                  </td>
-                  <td>
-                    <strong>{quote.nextFollowUp}</strong>
-                    <div className="small">Last touch: {quote.lastTouch}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
+        <QuoteTable quotes={queue} title="Follow-up queue" subtitle="This is the heart of the product: who needs attention now, and which quotes are going cold?" />
         <div className="grid">
+          <QuoteTable quotes={recent} title="Recently sent quotes" subtitle="Fresh pipeline that should be captured before it slips into silence." />
           <div className="card" id="drafts">
-            <h2>Draft follow-up messages</h2>
-            <p className="small">Templates will later become AI-personalized drafts using quote age, amount, and notes.</p>
-            {followUpDrafts.map((draft) => (
+            <h2>Draft follow-up message styles</h2>
+            <p className="small">These will become AI-assisted drafts backed by quote context in a later milestone.</p>
+            {draftTemplates.map((draft) => (
               <div key={draft.title} style={{ marginBottom: 16 }}>
                 <h3>{draft.title}</h3>
                 <p className="small">{draft.text}</p>
               </div>
             ))}
-          </div>
-
-          <div className="card">
-            <h2>First-build checklist</h2>
-            <ul className="list small">
-              <li>Wire a real Postgres-backed quote model</li>
-              <li>Add create/edit quote flows</li>
-              <li>Implement follow-up cadence rules</li>
-              <li>Store activity history per quote</li>
-              <li>Add AI-assisted draft generation</li>
-            </ul>
           </div>
         </div>
       </section>
