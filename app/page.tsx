@@ -9,8 +9,8 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 });
 
-export default function HomePage() {
-  const quotes = getQuotes();
+export default async function HomePage() {
+  const quotes = await getQuotes();
   const queue = sortQueue(quotes.filter((quote) => !['won', 'lost'].includes(quote.status)));
   const recent = [...quotes]
     .filter((quote) => quote.quoteAgeDays <= 3)

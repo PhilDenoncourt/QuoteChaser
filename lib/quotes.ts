@@ -1,59 +1,7 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { diffDays, diffDaysUntil, formatShortDate } from '@/lib/date';
-import type { Quote, QuoteWithDerived, UrgencyState } from '@/lib/domain';
-
-export const quotesSeed: Quote[] = [
-  {
-    id: 'QC-1042',
-    customerName: 'Martin Family Roof Replacement',
-    contactName: 'Holly Martin',
-    phone: '(919) 555-0181',
-    email: 'holly@example.com',
-    jobAddress: 'Raleigh, NC',
-    estimateAmount: 18400,
-    dateSent: '2026-03-25T10:00:00.000Z',
-    status: 'follow_up_due',
-    nextFollowUpAt: '2026-03-31T20:00:00.000Z',
-    lastContactAt: '2026-03-29T17:00:00.000Z',
-    notes: 'Customer asked about financing options.',
-    activities: [
-      { id: 'A1', quoteId: 'QC-1042', type: 'email', summary: 'Estimate sent to customer.', createdAt: '2026-03-25T10:00:00.000Z' },
-      { id: 'A2', quoteId: 'QC-1042', type: 'call', summary: 'Discussed financing question.', createdAt: '2026-03-29T17:00:00.000Z' },
-    ],
-  },
-  {
-    id: 'QC-1041',
-    customerName: 'Harris Storm Damage Repair',
-    contactName: 'James Harris',
-    phone: '(919) 555-0142',
-    jobAddress: 'Durham, NC',
-    estimateAmount: 12650,
-    dateSent: '2026-03-22T14:00:00.000Z',
-    status: 'at_risk',
-    nextFollowUpAt: '2026-03-30T16:00:00.000Z',
-    lastContactAt: '2026-03-26T18:00:00.000Z',
-    notes: 'Insurance timing may delay decision.',
-    activities: [
-      { id: 'A3', quoteId: 'QC-1041', type: 'email', summary: 'Estimate sent with storm repair breakdown.', createdAt: '2026-03-22T14:00:00.000Z' },
-      { id: 'A4', quoteId: 'QC-1041', type: 'text', summary: 'Checked whether insurance adjuster had replied.', createdAt: '2026-03-26T18:00:00.000Z' },
-    ],
-  },
-  {
-    id: 'QC-1040',
-    customerName: 'Bluebird Church Roof Patch',
-    contactName: 'Evan Brooks',
-    email: 'evan@example.org',
-    jobAddress: 'Cary, NC',
-    estimateAmount: 4300,
-    dateSent: '2026-03-29T15:00:00.000Z',
-    status: 'sent',
-    nextFollowUpAt: '2026-04-01T14:00:00.000Z',
-    lastContactAt: '2026-03-29T15:00:00.000Z',
-    notes: 'Quick repair. Wants fast turnaround.',
-    activities: [
-      { id: 'A5', quoteId: 'QC-1040', type: 'email', summary: 'Estimate sent for patch repair.', createdAt: '2026-03-29T15:00:00.000Z' },
-    ],
-  },
-];
+import type { Quote, QuoteStatus, QuoteWithDerived, UrgencyState } from '@/lib/domain';
 
 export const draftTemplates = [
   {
@@ -69,6 +17,8 @@ export const draftTemplates = [
     text: 'Hi {{name}}, I didn’t want your estimate to go stale if the project is still active. If you want, I can quickly recap options and next steps.',
   },
 ];
+
+const quotesFilePath = path.join(process.cwd(), 'data', 'quotes.json');
 
 export function computeUrgency(quote: Quote): UrgencyState {
   if (quote.status === 'at_risk') return 'at_risk';
@@ -112,12 +62,23 @@ export function withDerived(quote: Quote): QuoteWithDerived {
   };
 }
 
-export function getQuotes(): QuoteWithDerived[] {
-  return quotesSeed.map(withDerived);
+async function readQuotes(): Promise<Quote[]> {
+  const raw = await fs.readFile(quotesFilePath, 'utf8');
+  return JSON.parse(raw) as Quote[];
 }
 
-export function getQuoteById(id: string): QuoteWithDerived | undefined {
-  return getQuotes().find((quote) => quote.id === id);
+async function writeQuotes(quotes: Quote[]) {
+  await fs.writeFile(quotesFilePath, JSON.stringify(quotes, null, 2) + '\n', 'utf8');
+}
+
+export async function getQuotes(): Promise<QuoteWithDerived[]> {
+  const quotes = await readQuotes();
+  return quotes.map(withDerived);
+}
+
+export async function getQuoteById(id: string): Promise<QuoteWithDerived | undefined> {
+  const quotes = await getQuotes();
+  return quotes.find((quote) => quote.id === id);
 }
 
 export function getDashboardMetrics(quotes: QuoteWithDerived[]) {
@@ -137,4 +98,131 @@ export function sortQueue(quotes: QuoteWithDerived[]) {
     if (byPriority !== 0) return byPriority;
     return b.estimateAmount - a.estimateAmount;
   });
+}
+
+export type QuoteInput = {
+  customerName: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  jobAddress: string;
+  estimateAmount: number;
+  dateSent: string;
+  notes?: string;
+  status?: QuoteStatus;
+};
+
+export type QuoteValidationResult = {
+  fieldErrors: Partial<Record<'customerName' | 'contact' | 'jobAddress' | 'estimateAmount' | 'dateSent', string>>;
+};
+
+export function validateQuoteInput(input: QuoteInput): QuoteValidationResult {
+  const fieldErrors: QuoteValidationResult['fieldErrors'] = {};
+
+  if (!input.customerName.trim()) fieldErrors.customerName = 'Customer name is required.';
+  if (!input.phone?.trim() && !input.email?.trim()) fieldErrors.contact = 'Phone or email is required.';
+  if (!input.jobAddress.trim()) fieldErrors.jobAddress = 'Job address is required.';
+  if (!Number.isFinite(input.estimateAmount) || input.estimateAmount <= 0) fieldErrors.estimateAmount = 'Estimate amount must be greater than zero.';
+  if (!input.dateSent.trim()) fieldErrors.dateSent = 'Date sent is required.';
+
+  return { fieldErrors };
+}
+
+export function hasValidationErrors(result: QuoteValidationResult) {
+  return Object.keys(result.fieldErrors).length > 0;
+}
+
+export function calculateDefaultFollowUp(dateSent: string) {
+  const sent = new Date(dateSent);
+  sent.setUTCDate(sent.getUTCDate() + 2);
+  return sent.toISOString();
+}
+
+function nextQuoteId(quotes: Quote[]) {
+  const nums = quotes
+    .map((quote) => Number.parseInt(quote.id.replace('QC-', ''), 10))
+    .filter((num) => Number.isFinite(num));
+  const max = nums.length ? Math.max(...nums) : 1039;
+  return `QC-${max + 1}`;
+}
+
+function nextActivityId(quotes: Quote[]) {
+  const nums = quotes
+    .flatMap((quote) => quote.activities)
+    .map((activity) => Number.parseInt(activity.id.replace('A', ''), 10))
+    .filter((num) => Number.isFinite(num));
+  const max = nums.length ? Math.max(...nums) : 0;
+  return `A${max + 1}`;
+}
+
+export async function createQuote(input: QuoteInput) {
+  const quotes = await readQuotes();
+  const createdAt = new Date(`${input.dateSent}T12:00:00.000Z`).toISOString();
+  const id = nextQuoteId(quotes);
+  const activityId = nextActivityId(quotes);
+
+  const quote: Quote = {
+    id,
+    customerName: input.customerName.trim(),
+    contactName: input.contactName?.trim() || undefined,
+    phone: input.phone?.trim() || undefined,
+    email: input.email?.trim() || undefined,
+    jobAddress: input.jobAddress.trim(),
+    estimateAmount: input.estimateAmount,
+    dateSent: createdAt,
+    status: input.status ?? 'sent',
+    nextFollowUpAt: calculateDefaultFollowUp(createdAt),
+    lastContactAt: createdAt,
+    notes: input.notes?.trim() || undefined,
+    activities: [
+      {
+        id: activityId,
+        quoteId: id,
+        type: 'email',
+        summary: 'Quote logged in Quote Chaser.',
+        createdAt,
+      },
+    ],
+  };
+
+  quotes.unshift(quote);
+  await writeQuotes(quotes);
+  return quote;
+}
+
+export async function updateQuote(id: string, input: QuoteInput) {
+  const quotes = await readQuotes();
+  const index = quotes.findIndex((quote) => quote.id === id);
+  if (index === -1) return null;
+
+  const existing = quotes[index];
+  const normalizedDate = new Date(`${input.dateSent}T12:00:00.000Z`).toISOString();
+  const nextFollowUpAt = existing.nextFollowUpAt ?? calculateDefaultFollowUp(normalizedDate);
+
+  quotes[index] = {
+    ...existing,
+    customerName: input.customerName.trim(),
+    contactName: input.contactName?.trim() || undefined,
+    phone: input.phone?.trim() || undefined,
+    email: input.email?.trim() || undefined,
+    jobAddress: input.jobAddress.trim(),
+    estimateAmount: input.estimateAmount,
+    dateSent: normalizedDate,
+    notes: input.notes?.trim() || undefined,
+    nextFollowUpAt,
+    status: input.status ?? existing.status,
+    activities: [
+      ...existing.activities,
+      {
+        id: nextActivityId(quotes),
+        quoteId: id,
+        type: 'note',
+        summary: 'Quote details updated.',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+
+  await writeQuotes(quotes);
+  return quotes[index];
 }

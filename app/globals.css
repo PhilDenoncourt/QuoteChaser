@@ -358,3 +358,18 @@ label {
     grid-column: span 2;
   }
 }
+
+
+.error-text {
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.submit-row {
+  margin-top: 4px;
+}
+
+.notes-field {
+  grid-column: 1 / -1;
+}

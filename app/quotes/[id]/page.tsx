@@ -12,7 +12,7 @@ const currency = new Intl.NumberFormat('en-US', {
 
 export default async function QuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const quote = getQuoteById(id);
+  const quote = await getQuoteById(id);
 
   if (!quote) notFound();
 
@@ -52,7 +52,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
         <div className="card action-card">
           <h2>Next actions</h2>
           <div className="actions actions-stack-mobile" style={{ marginTop: 12 }}>
-            <button className="button" type="button">Update status</button>
+            <Link className="button" href={`/quotes/${quote.id}/edit`}>Edit quote</Link>
             <button className="button secondary" type="button">Log touch</button>
             <button className="button secondary" type="button">Generate follow-up</button>
           </div>
