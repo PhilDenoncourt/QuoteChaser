@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { ActivityForm } from '@/components/activity-form';
 import { StatusBadge } from '@/components/status-badge';
+import { StatusForm } from '@/components/status-form';
 import { UrgencyBadge } from '@/components/urgency-badge';
+import { addActivityAction, updateStatusAction } from '@/app/quotes/actions';
 import { draftTemplates, getQuoteById } from '@/lib/quotes';
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -15,6 +18,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const quote = await getQuoteById(id);
 
   if (!quote) notFound();
+
+  const activityAction = addActivityAction.bind(null, id);
+  const statusAction = updateStatusAction.bind(null, id);
 
   return (
     <main className="container mobile-shell">
@@ -51,14 +57,19 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
 
         <div className="card action-card">
           <h2>Next actions</h2>
-          <div className="actions actions-stack-mobile" style={{ marginTop: 12 }}>
-            <Link className="button" href={`/quotes/${quote.id}/edit`}>Edit quote</Link>
-            <button className="button secondary" type="button">Log touch</button>
-            <button className="button secondary" type="button">Generate follow-up</button>
+          <div className="actions actions-stack-mobile" style={{ marginTop: 12, marginBottom: 12 }}>
+            <Link className="button secondary" href={`/quotes/${quote.id}/edit`}>Edit quote</Link>
           </div>
+          <StatusForm action={statusAction} quote={quote} />
           <p className="small" style={{ marginTop: 12 }}>
             Mobile-first rule: the action panel stays high on the page so the user can update the quote quickly between calls or job visits.
           </p>
+        </div>
+
+        <div className="card">
+          <h2>Log touch</h2>
+          <p className="small">Calls, texts, emails, and notes should be easy to record while standing in a driveway or between calls.</p>
+          <ActivityForm action={activityAction} />
         </div>
 
         <div className="card">

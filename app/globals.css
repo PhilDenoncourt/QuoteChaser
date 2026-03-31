@@ -373,3 +373,12 @@ label {
 .notes-field {
   grid-column: 1 / -1;
 }
+
+
+.compact-form {
+  gap: 12px;
+}
+
+select.input {
+  appearance: none;
+}

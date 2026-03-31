@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { diffDays, diffDaysUntil, formatShortDate } from '@/lib/date';
-import type { Quote, QuoteStatus, QuoteWithDerived, UrgencyState } from '@/lib/domain';
+import type { Activity, ActivityType, Quote, QuoteStatus, QuoteWithDerived, UrgencyState } from '@/lib/domain';
 
 export const draftTemplates = [
   {
@@ -19,6 +19,8 @@ export const draftTemplates = [
 ];
 
 const quotesFilePath = path.join(process.cwd(), 'data', 'quotes.json');
+const validStatuses: QuoteStatus[] = ['sent', 'follow_up_due', 'waiting', 'at_risk', 'won', 'lost'];
+const validActivityTypes: ActivityType[] = ['call', 'text', 'email', 'note', 'status_change'];
 
 export function computeUrgency(quote: Quote): UrgencyState {
   if (quote.status === 'at_risk') return 'at_risk';
@@ -71,6 +73,15 @@ async function writeQuotes(quotes: Quote[]) {
   await fs.writeFile(quotesFilePath, JSON.stringify(quotes, null, 2) + '\n', 'utf8');
 }
 
+function normalizeDateInput(date: string) {
+  return new Date(`${date}T12:00:00.000Z`).toISOString();
+}
+
+function normalizeOptionalFollowUpDate(date?: string) {
+  if (!date?.trim()) return undefined;
+  return normalizeDateInput(date);
+}
+
 export async function getQuotes(): Promise<QuoteWithDerived[]> {
   const quotes = await readQuotes();
   return quotes.map(withDerived);
@@ -116,6 +127,25 @@ export type QuoteValidationResult = {
   fieldErrors: Partial<Record<'customerName' | 'contact' | 'jobAddress' | 'estimateAmount' | 'dateSent', string>>;
 };
 
+export type ActivityInput = {
+  type: string;
+  summary: string;
+  nextFollowUpDate?: string;
+};
+
+export type ActivityValidationResult = {
+  fieldErrors: Partial<Record<'type' | 'summary', string>>;
+};
+
+export type StatusInput = {
+  status: string;
+  nextFollowUpDate?: string;
+};
+
+export type StatusValidationResult = {
+  fieldErrors: Partial<Record<'status', string>>;
+};
+
 export function validateQuoteInput(input: QuoteInput): QuoteValidationResult {
   const fieldErrors: QuoteValidationResult['fieldErrors'] = {};
 
@@ -125,6 +155,19 @@ export function validateQuoteInput(input: QuoteInput): QuoteValidationResult {
   if (!Number.isFinite(input.estimateAmount) || input.estimateAmount <= 0) fieldErrors.estimateAmount = 'Estimate amount must be greater than zero.';
   if (!input.dateSent.trim()) fieldErrors.dateSent = 'Date sent is required.';
 
+  return { fieldErrors };
+}
+
+export function validateActivityInput(input: ActivityInput): ActivityValidationResult {
+  const fieldErrors: ActivityValidationResult['fieldErrors'] = {};
+  if (!validActivityTypes.includes(input.type as ActivityType)) fieldErrors.type = 'Choose a valid touch type.';
+  if (!input.summary.trim()) fieldErrors.summary = 'Add a short summary of what happened.';
+  return { fieldErrors };
+}
+
+export function validateStatusInput(input: StatusInput): StatusValidationResult {
+  const fieldErrors: StatusValidationResult['fieldErrors'] = {};
+  if (!validStatuses.includes(input.status as QuoteStatus)) fieldErrors.status = 'Choose a valid status.';
   return { fieldErrors };
 }
 
@@ -157,7 +200,7 @@ function nextActivityId(quotes: Quote[]) {
 
 export async function createQuote(input: QuoteInput) {
   const quotes = await readQuotes();
-  const createdAt = new Date(`${input.dateSent}T12:00:00.000Z`).toISOString();
+  const createdAt = normalizeDateInput(input.dateSent);
   const id = nextQuoteId(quotes);
   const activityId = nextActivityId(quotes);
 
@@ -196,8 +239,9 @@ export async function updateQuote(id: string, input: QuoteInput) {
   if (index === -1) return null;
 
   const existing = quotes[index];
-  const normalizedDate = new Date(`${input.dateSent}T12:00:00.000Z`).toISOString();
+  const normalizedDate = normalizeDateInput(input.dateSent);
   const nextFollowUpAt = existing.nextFollowUpAt ?? calculateDefaultFollowUp(normalizedDate);
+  const activityId = nextActivityId(quotes);
 
   quotes[index] = {
     ...existing,
@@ -214,11 +258,70 @@ export async function updateQuote(id: string, input: QuoteInput) {
     activities: [
       ...existing.activities,
       {
-        id: nextActivityId(quotes),
+        id: activityId,
         quoteId: id,
         type: 'note',
         summary: 'Quote details updated.',
         createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+
+  await writeQuotes(quotes);
+  return quotes[index];
+}
+
+export async function addQuoteActivity(id: string, input: ActivityInput) {
+  const quotes = await readQuotes();
+  const index = quotes.findIndex((quote) => quote.id === id);
+  if (index === -1) return null;
+
+  const existing = quotes[index];
+  const now = new Date().toISOString();
+  const activity: Activity = {
+    id: nextActivityId(quotes),
+    quoteId: id,
+    type: input.type as ActivityType,
+    summary: input.summary.trim(),
+    createdAt: now,
+  };
+
+  const isContactTouch = ['call', 'text', 'email'].includes(input.type);
+
+  quotes[index] = {
+    ...existing,
+    activities: [...existing.activities, activity],
+    lastContactAt: isContactTouch ? now : existing.lastContactAt,
+    nextFollowUpAt: normalizeOptionalFollowUpDate(input.nextFollowUpDate) ?? existing.nextFollowUpAt,
+    status: existing.status === 'sent' ? 'follow_up_due' : existing.status,
+  };
+
+  await writeQuotes(quotes);
+  return quotes[index];
+}
+
+export async function updateQuoteStatus(id: string, input: StatusInput) {
+  const quotes = await readQuotes();
+  const index = quotes.findIndex((quote) => quote.id === id);
+  if (index === -1) return null;
+
+  const existing = quotes[index];
+  const nextFollowUpAt = normalizeOptionalFollowUpDate(input.nextFollowUpDate);
+  const now = new Date().toISOString();
+  const nextStatus = input.status as QuoteStatus;
+
+  quotes[index] = {
+    ...existing,
+    status: nextStatus,
+    nextFollowUpAt: nextStatus === 'won' || nextStatus === 'lost' ? undefined : nextFollowUpAt ?? existing.nextFollowUpAt,
+    activities: [
+      ...existing.activities,
+      {
+        id: nextActivityId(quotes),
+        quoteId: id,
+        type: 'status_change',
+        summary: `Status updated to ${nextStatus.replace(/_/g, ' ')}.`,
+        createdAt: now,
       },
     ],
   };

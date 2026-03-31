@@ -1,10 +1,29 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { createQuote, hasValidationErrors, updateQuote, validateQuoteInput } from '@/lib/quotes';
+import {
+  addQuoteActivity,
+  createQuote,
+  hasValidationErrors,
+  updateQuote,
+  updateQuoteStatus,
+  validateActivityInput,
+  validateQuoteInput,
+  validateStatusInput,
+} from '@/lib/quotes';
 
 export type QuoteFormState = {
   fieldErrors?: Partial<Record<'customerName' | 'contact' | 'jobAddress' | 'estimateAmount' | 'dateSent', string>>;
+  values?: Record<string, string>;
+};
+
+export type ActivityFormState = {
+  fieldErrors?: Partial<Record<'summary' | 'type', string>>;
+  values?: Record<string, string>;
+};
+
+export type StatusFormState = {
+  fieldErrors?: Partial<Record<'status', string>>;
   values?: Record<string, string>;
 };
 
@@ -46,5 +65,36 @@ export async function updateQuoteAction(id: string, _: QuoteFormState, formData:
   }
 
   await updateQuote(id, input);
+  redirect(`/quotes/${id}`);
+}
+
+export async function addActivityAction(id: string, _: ActivityFormState, formData: FormData): Promise<ActivityFormState> {
+  const input = {
+    type: String(formData.get('type') ?? ''),
+    summary: String(formData.get('summary') ?? ''),
+    nextFollowUpDate: String(formData.get('nextFollowUpDate') ?? ''),
+  };
+
+  const validation = validateActivityInput(input);
+  if (Object.keys(validation.fieldErrors).length > 0) {
+    return { fieldErrors: validation.fieldErrors, values: valuesFromFormData(formData) };
+  }
+
+  await addQuoteActivity(id, input);
+  redirect(`/quotes/${id}`);
+}
+
+export async function updateStatusAction(id: string, _: StatusFormState, formData: FormData): Promise<StatusFormState> {
+  const input = {
+    status: String(formData.get('status') ?? ''),
+    nextFollowUpDate: String(formData.get('nextFollowUpDate') ?? ''),
+  };
+
+  const validation = validateStatusInput(input);
+  if (Object.keys(validation.fieldErrors).length > 0) {
+    return { fieldErrors: validation.fieldErrors, values: valuesFromFormData(formData) };
+  }
+
+  await updateQuoteStatus(id, input);
   redirect(`/quotes/${id}`);
 }
