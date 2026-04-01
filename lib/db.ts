@@ -9,16 +9,6 @@ declare global {
   var __quoteChaserPgPool: Pool | undefined;
 }
 
-function normalizeDatabaseUrl(connectionString: string) {
-  const url = new URL(connectionString);
-
-  if (!url.searchParams.has('sslmode')) {
-    url.searchParams.set('sslmode', 'require');
-  }
-
-  return url.toString();
-}
-
 export function dbEnabled() {
   return Boolean(process.env.DATABASE_URL);
 }
@@ -33,9 +23,8 @@ export function getPrismaClient() {
     throw new Error('DATABASE_URL is not configured.');
   }
 
-  const normalizedConnectionString = normalizeDatabaseUrl(connectionString);
   const pool = global.__quoteChaserPgPool ?? new Pool({
-    connectionString: normalizedConnectionString,
+    connectionString,
     ssl: {
       rejectUnauthorized: false,
     },
