@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ActivityForm } from '@/components/activity-form';
+import { DraftSuggestions } from '@/components/draft-suggestions';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusForm } from '@/components/status-form';
 import { UrgencyBadge } from '@/components/urgency-badge';
 import { addActivityAction, updateStatusAction } from '@/app/quotes/actions';
-import { draftTemplates, getQuoteById } from '@/lib/quotes';
+import { aiDraftsEnabled, generateDraftSuggestions } from '@/lib/drafts';
+import { getQuoteById } from '@/lib/quotes';
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -21,6 +23,8 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
 
   const activityAction = addActivityAction.bind(null, id);
   const statusAction = updateStatusAction.bind(null, id);
+  const drafts = generateDraftSuggestions(quote);
+  const aiEnabled = aiDraftsEnabled();
 
   return (
     <main className="container mobile-shell">
@@ -102,15 +106,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
         </div>
 
         <div className="card">
-          <h2>Draft suggestions</h2>
-          <div className="card-list">
-            {draftTemplates.map((draft) => (
-              <div key={draft.title} className="quote-card static-card">
-                <h3>{draft.title}</h3>
-                <p className="small">{draft.text.replace('{{name}}', quote.contactName ?? quote.customerName)}</p>
-              </div>
-            ))}
-          </div>
+          <DraftSuggestions drafts={drafts} aiEnabled={aiEnabled} />
         </div>
       </section>
     </main>

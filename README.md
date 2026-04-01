@@ -34,6 +34,13 @@ npm run dev
 
 See `.env.example`.
 
+### AI drafts
+
+Milestone 5 adds quote-contextual draft suggestions on the quote detail page.
+
+- Without `OPENAI_API_KEY`, the app uses structured fallback templates.
+- With `OPENAI_API_KEY`, the draft layer is ready to be upgraded to provider-backed generation without changing the UX contract.
+
 ## Deployment
 
 Document deployment steps in `docs/deploy-notes.md`.

@@ -4,6 +4,7 @@ import { MetricCard } from '@/components/metric-card';
 import { QueueSection } from '@/components/queue-section';
 import { QuoteCardList } from '@/components/quote-card-list';
 import { draftTemplates, filterQuotes, getDashboardMetrics, getQuotes, groupQueueByUrgency, sortQueue } from '@/lib/quotes';
+import { aiDraftsEnabled } from '@/lib/drafts';
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -21,6 +22,7 @@ export default async function HomePage({
   const statusFilter = params.status ?? 'all';
 
   const quotes = await getQuotes();
+  const aiEnabled = aiDraftsEnabled();
   const activeQuotes = quotes.filter((quote) => !['won', 'lost'].includes(quote.status));
   const filteredQueue = sortQueue(filterQuotes(activeQuotes, { urgency: urgencyFilter, status: statusFilter }));
   const grouped = groupQueueByUrgency(filteredQueue);
@@ -111,7 +113,11 @@ export default async function HomePage({
 
         <div className="card" id="drafts">
           <h2>Draft follow-up message styles</h2>
-          <p className="small">These will become AI-assisted drafts backed by quote context in a later milestone.</p>
+          <p className="small">
+            {aiEnabled
+              ? 'Draft assistance is enabled for quote detail pages.'
+              : 'Template-backed draft assistance is active now. Add OPENAI_API_KEY later to turn on AI-backed redrafts.'}
+          </p>
           <div className="card-list">
             {draftTemplates.map((draft) => (
               <div key={draft.title} className="quote-card static-card quote-card-compact">

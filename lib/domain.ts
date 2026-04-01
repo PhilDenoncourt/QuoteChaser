@@ -33,3 +33,15 @@ export type QuoteWithDerived = Quote & {
   lastTouchLabel: string;
   nextFollowUpLabel: string;
 };
+
+export type DraftTone = 'friendly' | 'urgent' | 'sms';
+
+export type DraftSuggestion = {
+  tone: DraftTone;
+  title: string;
+  channel: 'email' | 'text';
+  subject?: string;
+  body: string;
+  rationale: string;
+  fallbackUsed: boolean;
+};
