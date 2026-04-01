@@ -39,7 +39,8 @@ See `.env.example`.
 Milestone 5 adds quote-contextual draft suggestions on the quote detail page.
 
 - Without `OPENAI_API_KEY`, the app uses structured fallback templates.
-- With `OPENAI_API_KEY`, the draft layer is ready to be upgraded to provider-backed generation without changing the UX contract.
+- With `OPENAI_API_KEY`, the app uses server-side OpenAI generation and falls back automatically if the provider is unavailable.
+- Drafts are copy-ready and preserve the same UI whether they come from AI or fallback templates.
 
 ## Deployment
 

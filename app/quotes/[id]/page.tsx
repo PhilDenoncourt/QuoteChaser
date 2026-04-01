@@ -23,7 +23,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
 
   const activityAction = addActivityAction.bind(null, id);
   const statusAction = updateStatusAction.bind(null, id);
-  const drafts = generateDraftSuggestions(quote);
+  const drafts = await generateDraftSuggestions(quote);
   const aiEnabled = aiDraftsEnabled();
 
   return (
