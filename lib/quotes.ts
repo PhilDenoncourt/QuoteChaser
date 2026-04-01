@@ -1,11 +1,15 @@
 import { diffDays, diffDaysUntil, formatShortDate } from '@/lib/date';
 import type { Activity, ActivityType, Quote, QuoteStatus, QuoteWithDerived, UrgencyState } from '@/lib/domain';
+import { requireAuthContext } from '@/lib/auth';
 import {
+  appendQuoteActivityRecordForOrganization,
+  createQuoteRecordForOrganization,
   generateActivityId,
   generateQuoteId,
-  readQuoteById,
-  readQuotesStore,
-  withQuoteTransaction,
+  readQuoteByIdForOrganization,
+  readQuotesStoreForOrganization,
+  updateQuoteFieldsRecordForOrganization,
+  updateQuoteStatusRecordForOrganization,
 } from '@/lib/repository';
 
 export const draftTemplates = [
@@ -84,13 +88,20 @@ function normalizeOptionalFollowUpDate(date?: string) {
   return normalizeDateInput(date);
 }
 
-export async function getQuotes(): Promise<QuoteWithDerived[]> {
-  const quotes = await readQuotesStore();
+async function getOrganizationIdForCurrentUser() {
+  const auth = await requireAuthContext();
+  return auth.organizationId;
+}
+
+export async function getQuotesForCurrentUser(): Promise<QuoteWithDerived[]> {
+  const organizationId = await getOrganizationIdForCurrentUser();
+  const quotes = await readQuotesStoreForOrganization(organizationId);
   return quotes.map(withDerived);
 }
 
-export async function getQuoteById(id: string): Promise<QuoteWithDerived | undefined> {
-  const quote = await readQuoteById(id);
+export async function getQuoteByIdForCurrentUser(id: string): Promise<QuoteWithDerived | undefined> {
+  const organizationId = await getOrganizationIdForCurrentUser();
+  const quote = await readQuoteByIdForOrganization(id, organizationId);
   return quote ? withDerived(quote) : undefined;
 }
 
@@ -208,7 +219,8 @@ export function calculateDefaultFollowUp(dateSent: string) {
   return sent.toISOString();
 }
 
-export async function createQuote(input: QuoteInput) {
+export async function createQuoteForCurrentUser(input: QuoteInput) {
+  const organizationId = await getOrganizationIdForCurrentUser();
   const createdAt = normalizeDateInput(input.dateSent);
   const id = await generateQuoteId();
   const activityId = await generateActivityId();
@@ -237,45 +249,46 @@ export async function createQuote(input: QuoteInput) {
     ],
   };
 
-  await withQuoteTransaction((tx) => tx.createQuoteRecord(quote));
+  await createQuoteRecordForOrganization(organizationId, quote);
   return quote;
 }
 
-export async function updateQuote(id: string, input: QuoteInput) {
+export async function updateQuoteForCurrentUser(id: string, input: QuoteInput) {
+  const organizationId = await getOrganizationIdForCurrentUser();
   const normalizedDate = normalizeDateInput(input.dateSent);
   const now = new Date().toISOString();
   const activityId = await generateActivityId();
 
-  return withQuoteTransaction(async (tx) => {
-    const existing = await tx.readQuoteById(id);
-    if (!existing) return null;
+  const existing = await readQuoteByIdForOrganization(id, organizationId);
+  if (!existing) return null;
 
-    await tx.updateQuoteFieldsRecord(id, {
-      customerName: input.customerName.trim(),
-      contactName: input.contactName?.trim() || undefined,
-      phone: input.phone?.trim() || undefined,
-      email: input.email?.trim() || undefined,
-      jobAddress: input.jobAddress.trim(),
-      estimateAmount: input.estimateAmount,
-      dateSent: normalizedDate,
-      notes: input.notes?.trim() || undefined,
-      nextFollowUpAt: existing.nextFollowUpAt ?? calculateDefaultFollowUp(normalizedDate),
-      status: input.status ?? existing.status,
-    });
-
-    await tx.appendQuoteActivityRecord(id, {
-      id: activityId,
-      quoteId: id,
-      type: 'note',
-      summary: 'Quote details updated.',
-      createdAt: now,
-    });
-
-    return tx.readQuoteById(id);
+  await updateQuoteFieldsRecordForOrganization(organizationId, id, {
+    customerName: input.customerName.trim(),
+    contactName: input.contactName?.trim() || undefined,
+    phone: input.phone?.trim() || undefined,
+    email: input.email?.trim() || undefined,
+    jobAddress: input.jobAddress.trim(),
+    estimateAmount: input.estimateAmount,
+    dateSent: normalizedDate,
+    notes: input.notes?.trim() || undefined,
+    nextFollowUpAt: existing.nextFollowUpAt ?? calculateDefaultFollowUp(normalizedDate),
+    status: input.status ?? existing.status,
   });
+
+  await appendQuoteActivityRecordForOrganization(organizationId, id, {
+    id: activityId,
+    quoteId: id,
+    type: 'note',
+    summary: 'Quote details updated.',
+    createdAt: now,
+  });
+
+  const updated = await readQuoteByIdForOrganization(id, organizationId);
+  return updated ?? null;
 }
 
-export async function addQuoteActivity(id: string, input: ActivityInput) {
+export async function addQuoteActivityForCurrentUser(id: string, input: ActivityInput) {
+  const organizationId = await getOrganizationIdForCurrentUser();
   const now = new Date().toISOString();
   const activity: Activity = {
     id: await generateActivityId(),
@@ -286,47 +299,45 @@ export async function addQuoteActivity(id: string, input: ActivityInput) {
   };
 
   const isContactTouch = ['call', 'text', 'email'].includes(input.type);
+  const existing = await readQuoteByIdForOrganization(id, organizationId);
+  if (!existing) return null;
 
-  return withQuoteTransaction(async (tx) => {
-    const existing = await tx.readQuoteById(id);
-    if (!existing) return null;
-
-    await tx.appendQuoteActivityRecord(id, activity);
-    await tx.updateQuoteFieldsRecord(id, {
-      lastContactAt: isContactTouch ? now : existing.lastContactAt,
-      nextFollowUpAt: normalizeOptionalFollowUpDate(input.nextFollowUpDate) ?? existing.nextFollowUpAt,
-      status: existing.status === 'sent' ? 'follow_up_due' : existing.status,
-    });
-
-    return tx.readQuoteById(id);
+  await appendQuoteActivityRecordForOrganization(organizationId, id, activity);
+  await updateQuoteFieldsRecordForOrganization(organizationId, id, {
+    lastContactAt: isContactTouch ? now : existing.lastContactAt,
+    nextFollowUpAt: normalizeOptionalFollowUpDate(input.nextFollowUpDate) ?? existing.nextFollowUpAt,
+    status: existing.status === 'sent' ? 'follow_up_due' : existing.status,
   });
+
+  const updated = await readQuoteByIdForOrganization(id, organizationId);
+  return updated ?? null;
 }
 
-export async function updateQuoteStatus(id: string, input: StatusInput) {
+export async function updateQuoteStatusForCurrentUser(id: string, input: StatusInput) {
+  const organizationId = await getOrganizationIdForCurrentUser();
   const nextFollowUpAt = normalizeOptionalFollowUpDate(input.nextFollowUpDate);
   const now = new Date().toISOString();
   const nextStatus = input.status as QuoteStatus;
   const activityId = await generateActivityId();
 
-  return withQuoteTransaction(async (tx) => {
-    const existing = await tx.readQuoteById(id);
-    if (!existing) return null;
+  const existing = await readQuoteByIdForOrganization(id, organizationId);
+  if (!existing) return null;
 
-    await tx.updateQuoteStatusRecord(id, {
-      status: nextStatus,
-      nextFollowUpAt: nextStatus === 'won' || nextStatus === 'lost'
-        ? undefined
-        : nextFollowUpAt ?? existing.nextFollowUpAt,
-    });
-
-    await tx.appendQuoteActivityRecord(id, {
-      id: activityId,
-      quoteId: id,
-      type: 'status_change',
-      summary: `Status updated to ${nextStatus.replace(/_/g, ' ')}.`,
-      createdAt: now,
-    });
-
-    return tx.readQuoteById(id);
+  await updateQuoteStatusRecordForOrganization(organizationId, id, {
+    status: nextStatus,
+    nextFollowUpAt: nextStatus === 'won' || nextStatus === 'lost'
+      ? undefined
+      : nextFollowUpAt ?? existing.nextFollowUpAt,
   });
+
+  await appendQuoteActivityRecordForOrganization(organizationId, id, {
+    id: activityId,
+    quoteId: id,
+    type: 'status_change',
+    summary: `Status updated to ${nextStatus.replace(/_/g, ' ')}.`,
+    createdAt: now,
+  });
+
+  const updated = await readQuoteByIdForOrganization(id, organizationId);
+  return updated ?? null;
 }

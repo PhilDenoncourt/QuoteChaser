@@ -24,12 +24,14 @@ type DbQuoteRecord = {
   nextFollowUpAt: Date | null;
   lastContactAt: Date | null;
   notes: string | null;
+  organizationId: string;
   activities: {
     id: string;
     quoteId: string;
     type: ActivityType;
     summary: string;
     createdAt: Date;
+    organizationId: string;
   }[];
 };
 
@@ -41,11 +43,59 @@ type QuoteStatusUpdate = {
 };
 
 type QuoteTransaction = {
-  readQuoteById(id: string): Promise<Quote | null>;
-  createQuoteRecord(quote: Quote): Promise<Quote>;
-  updateQuoteFieldsRecord(id: string, patch: QuoteFieldsPatch): Promise<Quote | null>;
-  appendQuoteActivityRecord(id: string, activity: Activity): Promise<Quote | null>;
-  updateQuoteStatusRecord(id: string, update: QuoteStatusUpdate): Promise<Quote | null>;
+  readQuoteById(organizationId: string, id: string): Promise<Quote | null>;
+  createQuoteRecord(organizationId: string, quote: Quote): Promise<Quote>;
+  updateQuoteFieldsRecord(organizationId: string, id: string, patch: QuoteFieldsPatch): Promise<Quote | null>;
+  appendQuoteActivityRecord(organizationId: string, id: string, activity: Activity): Promise<Quote | null>;
+  updateQuoteStatusRecord(organizationId: string, id: string, update: QuoteStatusUpdate): Promise<Quote | null>;
+};
+
+export type RepositoryUser = {
+  id: string;
+  email: string;
+  name: string | null;
+  passwordHash: string;
+};
+
+export type RepositoryMembership = {
+  id: string;
+  userId: string;
+  organizationId: string;
+  role: 'owner' | 'member';
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
+export type SessionRecordInput = {
+  id: string;
+  userId: string;
+  organizationId: string;
+  membershipRole: 'owner' | 'member';
+  tokenHash: string;
+  expiresAt: Date;
+};
+
+export type SessionRecord = {
+  id: string;
+  userId: string;
+  organizationId: string;
+  membershipRole: 'owner' | 'member';
+  expiresAt: Date;
+};
+
+export type CreateUserWithOrganizationInput = {
+  userId: string;
+  organizationId: string;
+  membershipId: string;
+  email: string;
+  name: string | null;
+  passwordHash: string;
+  organizationName: string;
+  organizationSlug: string;
+  role: 'owner' | 'member';
 };
 
 function fromDbQuote(record: DbQuoteRecord): Quote {
@@ -94,14 +144,14 @@ async function mutateFileQuotes<T>(mutator: (quotes: Quote[]) => T | Promise<T>)
 
 function createFileTransaction(quotes: Quote[]): QuoteTransaction {
   return {
-    async readQuoteById(id: string) {
+    async readQuoteById(_organizationId: string, id: string) {
       return quotes.find((quote) => quote.id === id) ?? null;
     },
-    async createQuoteRecord(quote: Quote) {
+    async createQuoteRecord(_organizationId: string, quote: Quote) {
       quotes.unshift(quote);
       return quote;
     },
-    async updateQuoteFieldsRecord(id: string, patch: QuoteFieldsPatch) {
+    async updateQuoteFieldsRecord(_organizationId: string, id: string, patch: QuoteFieldsPatch) {
       const index = quotes.findIndex((quote) => quote.id === id);
       if (index === -1) return null;
 
@@ -112,7 +162,7 @@ function createFileTransaction(quotes: Quote[]): QuoteTransaction {
 
       return quotes[index];
     },
-    async appendQuoteActivityRecord(id: string, activity: Activity) {
+    async appendQuoteActivityRecord(_organizationId: string, id: string, activity: Activity) {
       const index = quotes.findIndex((quote) => quote.id === id);
       if (index === -1) return null;
 
@@ -123,7 +173,7 @@ function createFileTransaction(quotes: Quote[]): QuoteTransaction {
 
       return quotes[index];
     },
-    async updateQuoteStatusRecord(id: string, update: QuoteStatusUpdate) {
+    async updateQuoteStatusRecord(_organizationId: string, id: string, update: QuoteStatusUpdate) {
       const index = quotes.findIndex((quote) => quote.id === id);
       if (index === -1) return null;
 
@@ -138,11 +188,13 @@ function createFileTransaction(quotes: Quote[]): QuoteTransaction {
   };
 }
 
-async function readDbQuotes(): Promise<Quote[]> {
+async function readDbQuotesForOrganization(organizationId: string): Promise<Quote[]> {
   const prisma = getPrismaClient();
   const quotes = await prisma.quote.findMany({
+    where: { organizationId },
     include: {
       activities: {
+        where: { organizationId },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -152,12 +204,13 @@ async function readDbQuotes(): Promise<Quote[]> {
   return quotes.map(fromDbQuote);
 }
 
-async function getDbQuote(id: string): Promise<Quote | null> {
+async function getDbQuoteForOrganization(id: string, organizationId: string): Promise<Quote | null> {
   const prisma = getPrismaClient();
-  const quote = await prisma.quote.findUnique({
-    where: { id },
+  const quote = await prisma.quote.findFirst({
+    where: { id, organizationId },
     include: {
       activities: {
+        where: { organizationId },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -235,12 +288,25 @@ function toDbQuotePatch(patch: QuoteFieldsPatch) {
 }
 
 export async function readQuotesStore(): Promise<Quote[]> {
-  return dbEnabled() ? readDbQuotes() : readFileQuotes();
+  return dbEnabled() ? readDbQuotesForOrganization(defaultOrganization.id) : readFileQuotes();
+}
+
+export async function readQuotesStoreForOrganization(organizationId: string): Promise<Quote[]> {
+  return dbEnabled() ? readDbQuotesForOrganization(organizationId) : readFileQuotes();
 }
 
 export async function readQuoteById(id: string): Promise<Quote | null> {
   if (dbEnabled()) {
-    return getDbQuote(id);
+    return getDbQuoteForOrganization(id, defaultOrganization.id);
+  }
+
+  const quotes = await readFileQuotes();
+  return quotes.find((quote) => quote.id === id) ?? null;
+}
+
+export async function readQuoteByIdForOrganization(id: string, organizationId: string): Promise<Quote | null> {
+  if (dbEnabled()) {
+    return getDbQuoteForOrganization(id, organizationId);
   }
 
   const quotes = await readFileQuotes();
@@ -252,11 +318,12 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
     const prisma = getPrismaClient();
     return prisma.$transaction(async (dbTx) => {
       const tx: QuoteTransaction = {
-        async readQuoteById(id: string) {
-          const quote = await dbTx.quote.findUnique({
-            where: { id },
+        async readQuoteById(organizationId: string, id: string) {
+          const quote = await dbTx.quote.findFirst({
+            where: { id, organizationId },
             include: {
               activities: {
+                where: { organizationId },
                 orderBy: { createdAt: 'asc' },
               },
             },
@@ -264,19 +331,19 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
 
           return quote ? fromDbQuote(quote) : null;
         },
-        async createQuoteRecord(quote: Quote) {
+        async createQuoteRecord(organizationId: string, quote: Quote) {
           const organization = await dbTx.organization.findUnique({
-            where: { slug: defaultOrganization.slug },
+            where: { id: organizationId },
           });
 
           if (!organization) {
-            throw new Error('Default organization must exist before creating quote records in database mode.');
+            throw new Error('Organization must exist before creating quote records in database mode.');
           }
 
           await dbTx.quote.create({
             data: {
               id: quote.id,
-              organizationId: organization.id,
+              organizationId,
               customerName: quote.customerName,
               contactName: quote.contactName ?? null,
               phone: quote.phone ?? null,
@@ -291,7 +358,7 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
               activities: {
                 create: quote.activities.map((activity) => ({
                   id: activity.id,
-                  organizationId: organization.id,
+                  organizationId,
                   type: activity.type,
                   summary: activity.summary,
                   createdAt: new Date(activity.createdAt),
@@ -302,8 +369,8 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
 
           return quote;
         },
-        async updateQuoteFieldsRecord(id: string, patch: QuoteFieldsPatch) {
-          const existing = await dbTx.quote.findUnique({ where: { id } });
+        async updateQuoteFieldsRecord(organizationId: string, id: string, patch: QuoteFieldsPatch) {
+          const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
           if (!existing) return null;
 
           await dbTx.quote.update({
@@ -311,10 +378,11 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
             data: toDbQuotePatch(patch),
           });
 
-          const updated = await dbTx.quote.findUnique({
-            where: { id },
+          const updated = await dbTx.quote.findFirst({
+            where: { id, organizationId },
             include: {
               activities: {
+                where: { organizationId },
                 orderBy: { createdAt: 'asc' },
               },
             },
@@ -322,14 +390,14 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
 
           return updated ? fromDbQuote(updated) : null;
         },
-        async appendQuoteActivityRecord(id: string, activity: Activity) {
-          const existing = await dbTx.quote.findUnique({ where: { id } });
+        async appendQuoteActivityRecord(organizationId: string, id: string, activity: Activity) {
+          const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
           if (!existing) return null;
 
           await dbTx.activity.create({
             data: {
               id: activity.id,
-              organizationId: existing.organizationId,
+              organizationId,
               quoteId: id,
               type: activity.type,
               summary: activity.summary,
@@ -337,10 +405,11 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
             },
           });
 
-          const updated = await dbTx.quote.findUnique({
-            where: { id },
+          const updated = await dbTx.quote.findFirst({
+            where: { id, organizationId },
             include: {
               activities: {
+                where: { organizationId },
                 orderBy: { createdAt: 'asc' },
               },
             },
@@ -348,8 +417,8 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
 
           return updated ? fromDbQuote(updated) : null;
         },
-        async updateQuoteStatusRecord(id: string, update: QuoteStatusUpdate) {
-          const existing = await dbTx.quote.findUnique({ where: { id } });
+        async updateQuoteStatusRecord(organizationId: string, id: string, update: QuoteStatusUpdate) {
+          const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
           if (!existing) return null;
 
           await dbTx.quote.update({
@@ -362,10 +431,11 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
             },
           });
 
-          const updated = await dbTx.quote.findUnique({
-            where: { id },
+          const updated = await dbTx.quote.findFirst({
+            where: { id, organizationId },
             include: {
               activities: {
+                where: { organizationId },
                 orderBy: { createdAt: 'asc' },
               },
             },
@@ -394,20 +464,20 @@ export async function writeQuotesStore(quotes: Quote[]) {
   await writeFileQuotes(quotes);
 }
 
-export async function createQuoteRecord(quote: Quote) {
-  return withQuoteTransaction((tx) => tx.createQuoteRecord(quote));
+export async function createQuoteRecordForOrganization(organizationId: string, quote: Quote) {
+  return withQuoteTransaction((tx) => tx.createQuoteRecord(organizationId, quote));
 }
 
-export async function updateQuoteFieldsRecord(id: string, patch: QuoteFieldsPatch): Promise<Quote | null> {
-  return withQuoteTransaction((tx) => tx.updateQuoteFieldsRecord(id, patch));
+export async function updateQuoteFieldsRecordForOrganization(organizationId: string, id: string, patch: QuoteFieldsPatch): Promise<Quote | null> {
+  return withQuoteTransaction((tx) => tx.updateQuoteFieldsRecord(organizationId, id, patch));
 }
 
-export async function appendQuoteActivityRecord(id: string, activity: Activity): Promise<Quote | null> {
-  return withQuoteTransaction((tx) => tx.appendQuoteActivityRecord(id, activity));
+export async function appendQuoteActivityRecordForOrganization(organizationId: string, id: string, activity: Activity): Promise<Quote | null> {
+  return withQuoteTransaction((tx) => tx.appendQuoteActivityRecord(organizationId, id, activity));
 }
 
-export async function updateQuoteStatusRecord(id: string, update: QuoteStatusUpdate): Promise<Quote | null> {
-  return withQuoteTransaction((tx) => tx.updateQuoteStatusRecord(id, update));
+export async function updateQuoteStatusRecordForOrganization(organizationId: string, id: string, update: QuoteStatusUpdate): Promise<Quote | null> {
+  return withQuoteTransaction((tx) => tx.updateQuoteStatusRecord(organizationId, id, update));
 }
 
 export async function generateQuoteId() {
@@ -453,5 +523,159 @@ export async function backfillDefaultOrganizationForExistingData() {
         organizationId: organization.id,
       },
     });
+  });
+}
+
+export async function getUserByEmail(email: string): Promise<RepositoryUser | null> {
+  if (!dbEnabled()) {
+    return null;
+  }
+
+  const prisma = getPrismaClient();
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  return user;
+}
+
+export async function getCurrentMembershipForUser(userId: string): Promise<RepositoryMembership | null> {
+  if (!dbEnabled()) {
+    return null;
+  }
+
+  const prisma = getPrismaClient();
+  const membership = await prisma.membership.findFirst({
+    where: { userId },
+    include: {
+      organization: true,
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+  });
+
+  return membership;
+}
+
+export async function createUserWithOrganization(input: CreateUserWithOrganizationInput) {
+  if (!dbEnabled()) {
+    throw new Error('DATABASE_URL is required to create users and organizations.');
+  }
+
+  const prisma = getPrismaClient();
+  return prisma.$transaction(async (tx) => {
+    const organization = await tx.organization.create({
+      data: {
+        id: input.organizationId,
+        name: input.organizationName,
+        slug: input.organizationSlug,
+      },
+    });
+
+    const user = await tx.user.create({
+      data: {
+        id: input.userId,
+        email: input.email,
+        name: input.name,
+        passwordHash: input.passwordHash,
+      },
+    });
+
+    const membership = await tx.membership.create({
+      data: {
+        id: input.membershipId,
+        userId: input.userId,
+        organizationId: input.organizationId,
+        role: input.role,
+      },
+      include: {
+        organization: true,
+      },
+    });
+
+    return {
+      user,
+      organization,
+      membership,
+    };
+  });
+}
+
+export async function upsertSessionRecord(input: SessionRecordInput) {
+  if (!dbEnabled()) {
+    throw new Error('DATABASE_URL is required to persist sessions.');
+  }
+
+  const prisma = getPrismaClient();
+
+  const membership = await prisma.membership.findFirst({
+    where: {
+      userId: input.userId,
+      organizationId: input.organizationId,
+      role: input.membershipRole,
+    },
+  });
+
+  if (!membership) {
+    throw new Error('Cannot create session without a valid membership.');
+  }
+
+  await prisma.session.create({
+    data: {
+      id: input.id,
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      expiresAt: input.expiresAt,
+    },
+  });
+}
+
+export async function getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
+  if (!dbEnabled()) {
+    return null;
+  }
+
+  const prisma = getPrismaClient();
+  const session = await prisma.session.findUnique({
+    where: { tokenHash },
+    include: {
+      user: {
+        include: {
+          memberships: {
+            include: {
+              organization: true,
+            },
+            orderBy: {
+              createdAt: 'asc',
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!session) return null;
+
+  const membership = session.user.memberships[0];
+  if (!membership) return null;
+
+  return {
+    id: session.id,
+    userId: session.userId,
+    organizationId: membership.organizationId,
+    membershipRole: membership.role,
+    expiresAt: session.expiresAt,
+  };
+}
+
+export async function deleteSessionByTokenHash(tokenHash: string) {
+  if (!dbEnabled()) {
+    return;
+  }
+
+  const prisma = getPrismaClient();
+  await prisma.session.deleteMany({
+    where: { tokenHash },
   });
 }

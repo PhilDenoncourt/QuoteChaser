@@ -2,11 +2,11 @@
 
 import { redirect } from 'next/navigation';
 import {
-  addQuoteActivity,
-  createQuote,
+  addQuoteActivityForCurrentUser,
+  createQuoteForCurrentUser,
   hasValidationErrors,
-  updateQuote,
-  updateQuoteStatus,
+  updateQuoteForCurrentUser,
+  updateQuoteStatusForCurrentUser,
   validateActivityInput,
   validateQuoteInput,
   validateStatusInput,
@@ -52,7 +52,7 @@ export async function createQuoteAction(_: QuoteFormState, formData: FormData): 
     return { fieldErrors: validation.fieldErrors, values: valuesFromFormData(formData) };
   }
 
-  const quote = await createQuote(input);
+  const quote = await createQuoteForCurrentUser(input);
   redirect(`/quotes/${quote.id}`);
 }
 
@@ -64,7 +64,7 @@ export async function updateQuoteAction(id: string, _: QuoteFormState, formData:
     return { fieldErrors: validation.fieldErrors, values: valuesFromFormData(formData) };
   }
 
-  await updateQuote(id, input);
+  await updateQuoteForCurrentUser(id, input);
   redirect(`/quotes/${id}`);
 }
 
@@ -80,7 +80,7 @@ export async function addActivityAction(id: string, _: ActivityFormState, formDa
     return { fieldErrors: validation.fieldErrors, values: valuesFromFormData(formData) };
   }
 
-  await addQuoteActivity(id, input);
+  await addQuoteActivityForCurrentUser(id, input);
   redirect(`/quotes/${id}`);
 }
 
@@ -95,6 +95,6 @@ export async function updateStatusAction(id: string, _: StatusFormState, formDat
     return { fieldErrors: validation.fieldErrors, values: valuesFromFormData(formData) };
   }
 
-  await updateQuoteStatus(id, input);
+  await updateQuoteStatusForCurrentUser(id, input);
   redirect(`/quotes/${id}`);
 }
