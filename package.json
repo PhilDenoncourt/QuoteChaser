@@ -4,18 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "prisma generate && next build",
+    "start": "next start -p ${PORT:-3000}",
     "lint": "next lint",
     "smoke:persistence": "tsx --tsconfig tsconfig.json --require ./scripts/tsconfig-paths-register.cjs scripts/smoke-persistence.ts",
+    "smoke:persistence:db": "tsx --tsconfig tsconfig.json --require ./scripts/tsconfig-paths-register.cjs scripts/smoke-db-persistence.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
     "next": "15.5.14",
     "openai": "^6.33.0",
+    "pg": "^8.14.1",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },

@@ -20,8 +20,18 @@ Roofing contractors often lose jobs after sending an estimate because follow-up 
 
 - frontend: Next.js App Router
 - backend: Next.js route handlers/server actions
-- database: Postgres
-- deployment: Vercel
+- database: Postgres (Prisma scaffolding added; file fallback still present during migration)
+- deployment: Heroku
+
+## Production deployment target
+
+Quote Chaser is set up to deploy to Heroku from GitHub Actions on every push to `main`.
+
+High-level production shape:
+- Heroku app hosts the Next.js server
+- Heroku Postgres provides the production database
+- GitHub Actions builds and deploys on pushes to `main`
+- Heroku release phase runs `prisma migrate deploy`
 
 ## Local Development
 
@@ -51,3 +61,22 @@ Configurable environment variables:
 ## Deployment
 
 Document deployment steps in `docs/deploy-notes.md`.
+
+## Milestone 6 scaffolding
+
+The repo now includes Prisma/Postgres scaffolding for deployment readiness.
+
+Current transition behavior:
+- without `DATABASE_URL`, Quote Chaser still uses `data/quotes.json`
+- with `DATABASE_URL`, the app reads/writes through the Prisma-backed repository
+- `npm run prisma:generate` generates the client
+- `npm run prisma:migrate` applies local migrations
+- `npm run prisma:seed` seeds the database from `data/quotes.json`
+
+Initial migration status:
+- the repo now includes an initial SQL migration at `prisma/migrations/20260401090500_init/migration.sql`
+- applying it still requires a real Postgres `DATABASE_URL`
+- once a database is available, the next steps are:
+  1. set `DATABASE_URL`
+  2. run `npm run prisma:migrate`
+  3. run `npm run prisma:seed`

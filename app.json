@@ -1,0 +1,40 @@
+{
+  "name": "quote-chaser",
+  "description": "A lightweight estimate follow-up tool for roofing contractors.",
+  "repository": "https://github.com/PhilDenoncourt/QuoteChaser",
+  "env": {
+    "NEXT_PUBLIC_APP_NAME": {
+      "description": "Public app name shown in the UI.",
+      "value": "Quote Chaser"
+    },
+    "NODE_ENV": {
+      "description": "Runtime environment.",
+      "value": "production"
+    },
+    "OPENAI_API_KEY": {
+      "description": "Optional API key for AI-assisted draft generation.",
+      "required": false
+    },
+    "OPENAI_MODEL": {
+      "description": "Optional model override for AI draft generation.",
+      "required": false
+    },
+    "OPENAI_DRAFT_CONTEXT_LIMIT": {
+      "description": "Optional number of recent activities to include in AI prompts.",
+      "required": false
+    },
+    "OPENAI_DRAFT_STYLE_HINT": {
+      "description": "Optional style hint for AI-generated drafts.",
+      "required": false
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "addons": [
+    "heroku-postgresql:essential-0"
+  ]
+}
