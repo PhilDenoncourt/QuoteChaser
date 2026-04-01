@@ -42,6 +42,12 @@ Milestone 5 adds quote-contextual draft suggestions on the quote detail page.
 - With `OPENAI_API_KEY`, the app uses server-side OpenAI generation and falls back automatically if the provider is unavailable.
 - Drafts are copy-ready and preserve the same UI whether they come from AI or fallback templates.
 
+Configurable environment variables:
+- `OPENAI_API_KEY` — enables provider-backed generation
+- `OPENAI_MODEL` — override the model used for draft generation
+- `OPENAI_DRAFT_CONTEXT_LIMIT` — how many recent activities to include in prompt context
+- `OPENAI_DRAFT_STYLE_HINT` — high-level style guidance for the generated drafts
+
 ## Deployment
 
 Document deployment steps in `docs/deploy-notes.md`.

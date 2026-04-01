@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
+import { appConfig } from '@/lib/config';
 import type { DraftSuggestion, DraftTone, QuoteWithDerived } from '@/lib/domain';
 
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const openai = appConfig.ai.enabled() ? new OpenAI({ apiKey: appConfig.ai.apiKey }) : null;
 
 type ProviderDraft = {
   tone: DraftTone;
@@ -163,7 +164,7 @@ async function generateProviderDrafts(quote: QuoteWithDerived): Promise<DraftSug
       nextFollowUpLabel: quote.nextFollowUpLabel,
       lastTouchLabel: quote.lastTouchLabel,
       notes: quote.notes ?? null,
-      recentActivities: quote.activities.slice(-3).map((activity) => ({
+      recentActivities: quote.activities.slice(-appConfig.ai.maxRecentActivities).map((activity) => ({
         type: activity.type,
         summary: activity.summary,
         createdAt: activity.createdAt,
@@ -183,14 +184,14 @@ async function generateProviderDrafts(quote: QuoteWithDerived): Promise<DraftSug
 
   try {
     const response = await openai.responses.create({
-      model: 'gpt-5.4-mini',
+      model: appConfig.ai.model,
       input: [
         {
           role: 'system',
           content: [
             {
               type: 'input_text',
-              text: 'You write useful follow-up drafts for roofing estimate recovery. Return only valid JSON.',
+              text: `${appConfig.ai.styleHint} Return only valid JSON.`,
             },
           ],
         },
@@ -249,5 +250,5 @@ export async function generateDraftSuggestions(quote: QuoteWithDerived): Promise
 }
 
 export function aiDraftsEnabled() {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return appConfig.ai.enabled();
 }
