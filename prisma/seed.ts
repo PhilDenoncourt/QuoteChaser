@@ -2,7 +2,7 @@ import { seedDatabaseFromFile } from '@/lib/repository';
 
 async function main() {
   await seedDatabaseFromFile();
-  console.log('Seeded database from data/quotes.json');
+  console.log('Seeded database from data/quotes.json into the default organization.');
 }
 
 main().catch((error) => {

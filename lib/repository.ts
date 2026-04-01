@@ -5,6 +5,11 @@ import { dbEnabled, getPrismaClient } from '@/lib/db';
 import type { Activity, ActivityType, Quote, QuoteStatus } from '@/lib/domain';
 
 const quotesFilePath = path.join(process.cwd(), 'data', 'quotes.json');
+const defaultOrganization = {
+  id: 'org_migrated_demo',
+  name: 'Migrated Demo Organization',
+  slug: 'migrated-demo-organization',
+};
 
 type DbQuoteRecord = {
   id: string;
@@ -161,8 +166,22 @@ async function getDbQuote(id: string): Promise<Quote | null> {
   return quote ? fromDbQuote(quote) : null;
 }
 
+async function ensureDefaultOrganization() {
+  const prisma = getPrismaClient();
+  await prisma.organization.upsert({
+    where: { slug: defaultOrganization.slug },
+    update: {
+      name: defaultOrganization.name,
+    },
+    create: defaultOrganization,
+  });
+
+  return defaultOrganization;
+}
+
 async function writeDbQuotes(quotes: Quote[]) {
   const prisma = getPrismaClient();
+  const organization = await ensureDefaultOrganization();
 
   await prisma.$transaction(async (tx) => {
     await tx.activity.deleteMany();
@@ -172,6 +191,7 @@ async function writeDbQuotes(quotes: Quote[]) {
       await tx.quote.create({
         data: {
           id: quote.id,
+          organizationId: organization.id,
           customerName: quote.customerName,
           contactName: quote.contactName ?? null,
           phone: quote.phone ?? null,
@@ -186,6 +206,7 @@ async function writeDbQuotes(quotes: Quote[]) {
           activities: {
             create: quote.activities.map((activity: Activity) => ({
               id: activity.id,
+              organizationId: organization.id,
               type: activity.type,
               summary: activity.summary,
               createdAt: new Date(activity.createdAt),
@@ -244,9 +265,18 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
           return quote ? fromDbQuote(quote) : null;
         },
         async createQuoteRecord(quote: Quote) {
+          const organization = await dbTx.organization.findUnique({
+            where: { slug: defaultOrganization.slug },
+          });
+
+          if (!organization) {
+            throw new Error('Default organization must exist before creating quote records in database mode.');
+          }
+
           await dbTx.quote.create({
             data: {
               id: quote.id,
+              organizationId: organization.id,
               customerName: quote.customerName,
               contactName: quote.contactName ?? null,
               phone: quote.phone ?? null,
@@ -261,6 +291,7 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
               activities: {
                 create: quote.activities.map((activity) => ({
                   id: activity.id,
+                  organizationId: organization.id,
                   type: activity.type,
                   summary: activity.summary,
                   createdAt: new Date(activity.createdAt),
@@ -298,6 +329,7 @@ export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) =
           await dbTx.activity.create({
             data: {
               id: activity.id,
+              organizationId: existing.organizationId,
               quoteId: id,
               type: activity.type,
               summary: activity.summary,
@@ -393,4 +425,33 @@ export async function seedDatabaseFromFile() {
 
   const quotes = await readFileQuotes();
   await writeDbQuotes(quotes);
+}
+
+export async function backfillDefaultOrganizationForExistingData() {
+  if (!dbEnabled()) {
+    throw new Error('DATABASE_URL is required to backfill the Postgres database.');
+  }
+
+  const prisma = getPrismaClient();
+  const organization = await ensureDefaultOrganization();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.quote.updateMany({
+      where: {
+        organizationId: '',
+      },
+      data: {
+        organizationId: organization.id,
+      },
+    });
+
+    await tx.activity.updateMany({
+      where: {
+        organizationId: '',
+      },
+      data: {
+        organizationId: organization.id,
+      },
+    });
+  });
 }
