@@ -16,9 +16,16 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+      HEROKU_EMAIL: ${{ secrets.HEROKU_EMAIL }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -38,12 +45,13 @@ jobs:
       - name: Install Heroku CLI
         run: curl https://cli-assets.heroku.com/install.sh | sh
 
-      - name: Deploy to Heroku
-        uses: akhileshns/heroku-deploy@v3.14.15
-        with:
-          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-          heroku_app_name: ${{ secrets.HEROKU_APP_NAME }}
-          heroku_email: ${{ secrets.HEROKU_EMAIL }}
-          usedocker: false
-          procfile: "Procfile"
-          appdir: "."
+      - name: Login to Heroku container registry
+        run: heroku auth:token >/dev/null
+
+      - name: Configure Heroku git remote
+        run: |
+          heroku git:remote -a "$HEROKU_APP_NAME"
+          git remote -v
+
+      - name: Deploy branch to Heroku
+        run: git push heroku HEAD:main --force
