@@ -1,7 +1,12 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { diffDays, diffDaysUntil, formatShortDate } from '@/lib/date';
 import type { Activity, ActivityType, Quote, QuoteStatus, QuoteWithDerived, UrgencyState } from '@/lib/domain';
+import {
+  generateActivityId,
+  generateQuoteId,
+  readQuoteById,
+  readQuotesStore,
+  withQuoteTransaction,
+} from '@/lib/repository';
 
 export const draftTemplates = [
   {
@@ -18,7 +23,6 @@ export const draftTemplates = [
   },
 ];
 
-const quotesFilePath = path.join(process.cwd(), 'data', 'quotes.json');
 const validStatuses: QuoteStatus[] = ['sent', 'follow_up_due', 'waiting', 'at_risk', 'won', 'lost'];
 const validActivityTypes: ActivityType[] = ['call', 'text', 'email', 'note', 'status_change'];
 
@@ -71,15 +75,6 @@ export function withDerived(quote: Quote): QuoteWithDerived {
   };
 }
 
-async function readQuotes(): Promise<Quote[]> {
-  const raw = await fs.readFile(quotesFilePath, 'utf8');
-  return JSON.parse(raw) as Quote[];
-}
-
-async function writeQuotes(quotes: Quote[]) {
-  await fs.writeFile(quotesFilePath, JSON.stringify(quotes, null, 2) + '\n', 'utf8');
-}
-
 function normalizeDateInput(date: string) {
   return new Date(`${date}T12:00:00.000Z`).toISOString();
 }
@@ -90,13 +85,13 @@ function normalizeOptionalFollowUpDate(date?: string) {
 }
 
 export async function getQuotes(): Promise<QuoteWithDerived[]> {
-  const quotes = await readQuotes();
+  const quotes = await readQuotesStore();
   return quotes.map(withDerived);
 }
 
 export async function getQuoteById(id: string): Promise<QuoteWithDerived | undefined> {
-  const quotes = await getQuotes();
-  return quotes.find((quote) => quote.id === id);
+  const quote = await readQuoteById(id);
+  return quote ? withDerived(quote) : undefined;
 }
 
 export function getDashboardMetrics(quotes: QuoteWithDerived[]) {
@@ -213,28 +208,10 @@ export function calculateDefaultFollowUp(dateSent: string) {
   return sent.toISOString();
 }
 
-function nextQuoteId(quotes: Quote[]) {
-  const nums = quotes
-    .map((quote) => Number.parseInt(quote.id.replace('QC-', ''), 10))
-    .filter((num) => Number.isFinite(num));
-  const max = nums.length ? Math.max(...nums) : 1039;
-  return `QC-${max + 1}`;
-}
-
-function nextActivityId(quotes: Quote[]) {
-  const nums = quotes
-    .flatMap((quote) => quote.activities)
-    .map((activity) => Number.parseInt(activity.id.replace('A', ''), 10))
-    .filter((num) => Number.isFinite(num));
-  const max = nums.length ? Math.max(...nums) : 0;
-  return `A${max + 1}`;
-}
-
 export async function createQuote(input: QuoteInput) {
-  const quotes = await readQuotes();
   const createdAt = normalizeDateInput(input.dateSent);
-  const id = nextQuoteId(quotes);
-  const activityId = nextActivityId(quotes);
+  const id = await generateQuoteId();
+  const activityId = await generateActivityId();
 
   const quote: Quote = {
     id,
@@ -260,58 +237,48 @@ export async function createQuote(input: QuoteInput) {
     ],
   };
 
-  quotes.unshift(quote);
-  await writeQuotes(quotes);
+  await withQuoteTransaction((tx) => tx.createQuoteRecord(quote));
   return quote;
 }
 
 export async function updateQuote(id: string, input: QuoteInput) {
-  const quotes = await readQuotes();
-  const index = quotes.findIndex((quote) => quote.id === id);
-  if (index === -1) return null;
-
-  const existing = quotes[index];
   const normalizedDate = normalizeDateInput(input.dateSent);
-  const nextFollowUpAt = existing.nextFollowUpAt ?? calculateDefaultFollowUp(normalizedDate);
-  const activityId = nextActivityId(quotes);
+  const now = new Date().toISOString();
+  const activityId = await generateActivityId();
 
-  quotes[index] = {
-    ...existing,
-    customerName: input.customerName.trim(),
-    contactName: input.contactName?.trim() || undefined,
-    phone: input.phone?.trim() || undefined,
-    email: input.email?.trim() || undefined,
-    jobAddress: input.jobAddress.trim(),
-    estimateAmount: input.estimateAmount,
-    dateSent: normalizedDate,
-    notes: input.notes?.trim() || undefined,
-    nextFollowUpAt,
-    status: input.status ?? existing.status,
-    activities: [
-      ...existing.activities,
-      {
-        id: activityId,
-        quoteId: id,
-        type: 'note',
-        summary: 'Quote details updated.',
-        createdAt: new Date().toISOString(),
-      },
-    ],
-  };
+  return withQuoteTransaction(async (tx) => {
+    const existing = await tx.readQuoteById(id);
+    if (!existing) return null;
 
-  await writeQuotes(quotes);
-  return quotes[index];
+    await tx.updateQuoteFieldsRecord(id, {
+      customerName: input.customerName.trim(),
+      contactName: input.contactName?.trim() || undefined,
+      phone: input.phone?.trim() || undefined,
+      email: input.email?.trim() || undefined,
+      jobAddress: input.jobAddress.trim(),
+      estimateAmount: input.estimateAmount,
+      dateSent: normalizedDate,
+      notes: input.notes?.trim() || undefined,
+      nextFollowUpAt: existing.nextFollowUpAt ?? calculateDefaultFollowUp(normalizedDate),
+      status: input.status ?? existing.status,
+    });
+
+    await tx.appendQuoteActivityRecord(id, {
+      id: activityId,
+      quoteId: id,
+      type: 'note',
+      summary: 'Quote details updated.',
+      createdAt: now,
+    });
+
+    return tx.readQuoteById(id);
+  });
 }
 
 export async function addQuoteActivity(id: string, input: ActivityInput) {
-  const quotes = await readQuotes();
-  const index = quotes.findIndex((quote) => quote.id === id);
-  if (index === -1) return null;
-
-  const existing = quotes[index];
   const now = new Date().toISOString();
   const activity: Activity = {
-    id: nextActivityId(quotes),
+    id: await generateActivityId(),
     quoteId: id,
     type: input.type as ActivityType,
     summary: input.summary.trim(),
@@ -320,44 +287,46 @@ export async function addQuoteActivity(id: string, input: ActivityInput) {
 
   const isContactTouch = ['call', 'text', 'email'].includes(input.type);
 
-  quotes[index] = {
-    ...existing,
-    activities: [...existing.activities, activity],
-    lastContactAt: isContactTouch ? now : existing.lastContactAt,
-    nextFollowUpAt: normalizeOptionalFollowUpDate(input.nextFollowUpDate) ?? existing.nextFollowUpAt,
-    status: existing.status === 'sent' ? 'follow_up_due' : existing.status,
-  };
+  return withQuoteTransaction(async (tx) => {
+    const existing = await tx.readQuoteById(id);
+    if (!existing) return null;
 
-  await writeQuotes(quotes);
-  return quotes[index];
+    await tx.appendQuoteActivityRecord(id, activity);
+    await tx.updateQuoteFieldsRecord(id, {
+      lastContactAt: isContactTouch ? now : existing.lastContactAt,
+      nextFollowUpAt: normalizeOptionalFollowUpDate(input.nextFollowUpDate) ?? existing.nextFollowUpAt,
+      status: existing.status === 'sent' ? 'follow_up_due' : existing.status,
+    });
+
+    return tx.readQuoteById(id);
+  });
 }
 
 export async function updateQuoteStatus(id: string, input: StatusInput) {
-  const quotes = await readQuotes();
-  const index = quotes.findIndex((quote) => quote.id === id);
-  if (index === -1) return null;
-
-  const existing = quotes[index];
   const nextFollowUpAt = normalizeOptionalFollowUpDate(input.nextFollowUpDate);
   const now = new Date().toISOString();
   const nextStatus = input.status as QuoteStatus;
+  const activityId = await generateActivityId();
 
-  quotes[index] = {
-    ...existing,
-    status: nextStatus,
-    nextFollowUpAt: nextStatus === 'won' || nextStatus === 'lost' ? undefined : nextFollowUpAt ?? existing.nextFollowUpAt,
-    activities: [
-      ...existing.activities,
-      {
-        id: nextActivityId(quotes),
-        quoteId: id,
-        type: 'status_change',
-        summary: `Status updated to ${nextStatus.replace(/_/g, ' ')}.`,
-        createdAt: now,
-      },
-    ],
-  };
+  return withQuoteTransaction(async (tx) => {
+    const existing = await tx.readQuoteById(id);
+    if (!existing) return null;
 
-  await writeQuotes(quotes);
-  return quotes[index];
+    await tx.updateQuoteStatusRecord(id, {
+      status: nextStatus,
+      nextFollowUpAt: nextStatus === 'won' || nextStatus === 'lost'
+        ? undefined
+        : nextFollowUpAt ?? existing.nextFollowUpAt,
+    });
+
+    await tx.appendQuoteActivityRecord(id, {
+      id: activityId,
+      quoteId: id,
+      type: 'status_change',
+      summary: `Status updated to ${nextStatus.replace(/_/g, ' ')}.`,
+      createdAt: now,
+    });
+
+    return tx.readQuoteById(id);
+  });
 }

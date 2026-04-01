@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum QuoteStatus {
+  sent
+  follow_up_due
+  waiting
+  at_risk
+  won
+  lost
+}
+
+enum ActivityType {
+  call
+  text
+  email
+  note
+  status_change
+}
+
+model Quote {
+  id             String       @id
+  customerName   String
+  contactName    String?
+  phone          String?
+  email          String?
+  jobAddress     String
+  estimateAmount Int
+  dateSent       DateTime
+  status         QuoteStatus
+  nextFollowUpAt DateTime?
+  lastContactAt  DateTime?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  activities     Activity[]
+
+  @@index([status])
+  @@index([nextFollowUpAt])
+}
+
+model Activity {
+  id        String       @id
+  quoteId   String
+  type      ActivityType
+  summary   String
+  createdAt DateTime     @default(now())
+  quote     Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, createdAt])
+}
