@@ -5,6 +5,7 @@ import {
   createUserWithOrganization,
   getCurrentMembershipForUser,
   getUserByEmail,
+  getUserWithCurrentMembership,
 } from '@/lib/repository';
 
 export type SignupInput = {
@@ -101,5 +102,19 @@ export async function getCurrentAuthContext() {
     userId: session.userId,
     organizationId: session.organizationId,
     membershipRole: session.membershipRole,
+  };
+}
+
+export async function getCurrentViewer() {
+  const session = await getSessionFromCookie();
+  if (!session) return null;
+
+  const result = await getUserWithCurrentMembership(session.userId);
+  if (!result || !result.membership) return null;
+
+  return {
+    user: result.user,
+    organization: result.membership.organization,
+    membershipRole: result.membership.role,
   };
 }

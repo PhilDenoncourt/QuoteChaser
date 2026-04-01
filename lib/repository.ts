@@ -558,6 +558,38 @@ export async function getCurrentMembershipForUser(userId: string): Promise<Repos
   return membership;
 }
 
+export async function getUserWithCurrentMembership(userId: string) {
+  if (!dbEnabled()) {
+    return null;
+  }
+
+  const prisma = getPrismaClient();
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      memberships: {
+        include: {
+          organization: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      },
+    },
+  });
+
+  if (!user) return null;
+
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    },
+    membership: user.memberships[0] ?? null,
+  };
+}
+
 export async function createUserWithOrganization(input: CreateUserWithOrganizationInput) {
   if (!dbEnabled()) {
     throw new Error('DATABASE_URL is required to create users and organizations.');
