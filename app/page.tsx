@@ -3,7 +3,7 @@ import { FilterBar } from '@/components/filter-bar';
 import { MetricCard } from '@/components/metric-card';
 import { QueueSection } from '@/components/queue-section';
 import { QuoteCardList } from '@/components/quote-card-list';
-import { draftTemplates, filterQuotes, getDashboardMetrics, getQuotes, groupQueueByUrgency, sortQueue } from '@/lib/quotes';
+import { draftTemplates, filterQuotes, getDashboardMetrics, getQuotesForCurrentUser, groupQueueByUrgency, sortQueue } from '@/lib/quotes';
 import { aiDraftsEnabled } from '@/lib/drafts';
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -21,7 +21,7 @@ export default async function HomePage({
   const urgencyFilter = params.urgency ?? 'all';
   const statusFilter = params.status ?? 'all';
 
-  const quotes = await getQuotes();
+  const quotes = await getQuotesForCurrentUser();
   const aiEnabled = aiDraftsEnabled();
   const activeQuotes = quotes.filter((quote) => !['won', 'lost'].includes(quote.status));
   const filteredQueue = sortQueue(filterQuotes(activeQuotes, { urgency: urgencyFilter, status: statusFilter }));

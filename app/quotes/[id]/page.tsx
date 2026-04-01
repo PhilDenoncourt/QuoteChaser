@@ -7,7 +7,7 @@ import { StatusForm } from '@/components/status-form';
 import { UrgencyBadge } from '@/components/urgency-badge';
 import { addActivityAction, updateStatusAction } from '@/app/quotes/actions';
 import { aiDraftsEnabled, generateDraftSuggestions } from '@/lib/drafts';
-import { getQuoteById } from '@/lib/quotes';
+import { getQuoteByIdForCurrentUser } from '@/lib/quotes';
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -17,7 +17,7 @@ const currency = new Intl.NumberFormat('en-US', {
 
 export default async function QuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const quote = await getQuoteById(id);
+  const quote = await getQuoteByIdForCurrentUser(id);
 
   if (!quote) notFound();
 

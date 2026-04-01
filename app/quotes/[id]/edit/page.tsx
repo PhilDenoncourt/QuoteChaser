@@ -2,11 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { QuoteForm } from '@/components/quote-form';
 import { updateQuoteAction } from '@/app/quotes/actions';
-import { getQuoteById } from '@/lib/quotes';
+import { getQuoteByIdForCurrentUser } from '@/lib/quotes';
 
 export default async function EditQuotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const quote = await getQuoteById(id);
+  const quote = await getQuoteByIdForCurrentUser(id);
 
   if (!quote) notFound();
 

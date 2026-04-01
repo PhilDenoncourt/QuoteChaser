@@ -52,6 +52,9 @@ CREATE TABLE "Session" (
     CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateIndex
+CREATE UNIQUE INDEX "Organization_slug_key" ON "Organization"("slug");
+
 -- Create default organization for migrated quote/activity data
 INSERT INTO "Organization" ("id", "name", "slug", "createdAt", "updatedAt")
 VALUES (
@@ -79,9 +82,6 @@ WHERE "organizationId" IS NULL;
 -- Make organizationId required after backfill
 ALTER TABLE "Quote" ALTER COLUMN "organizationId" SET NOT NULL;
 ALTER TABLE "Activity" ALTER COLUMN "organizationId" SET NOT NULL;
-
--- CreateIndex
-CREATE UNIQUE INDEX "Organization_slug_key" ON "Organization"("slug");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
