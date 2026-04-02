@@ -20,18 +20,18 @@ Roofing contractors often lose jobs after sending an estimate because follow-up 
 
 - frontend: Next.js App Router
 - backend: Next.js route handlers/server actions
-- database: Postgres (Prisma scaffolding added; file fallback still present during migration)
-- deployment: Heroku
+- database: Postgres via Prisma
+- deployment target: Render
 
 ## Production deployment target
 
-Quote Chaser is set up to deploy to Heroku from GitHub Actions on every push to `main`.
+Quote Chaser is being prepared to deploy on Render.
 
 High-level production shape:
-- Heroku app hosts the Next.js server
-- Heroku Postgres provides the production database
-- GitHub Actions builds and deploys on pushes to `main`
-- Heroku release phase runs `prisma migrate deploy`
+- Render web service hosts the Next.js server
+- Render PostgreSQL provides the production database
+- Render runs the app in database-only mode
+- deploy-time schema changes should use `prisma migrate deploy`
 
 ## Local Development
 
@@ -57,26 +57,39 @@ Configurable environment variables:
 - `OPENAI_MODEL` — override the model used for draft generation
 - `OPENAI_DRAFT_CONTEXT_LIMIT` — how many recent activities to include in prompt context
 - `OPENAI_DRAFT_STYLE_HINT` — high-level style guidance for the generated drafts
+- `APP_BASE_URL` — base URL used to build password reset links
+- `PASSWORD_RESET_TOKEN_TTL_MINUTES` — password reset link lifetime in minutes
+
+### Password reset
+
+The app now includes a basic password reset flow:
+- users can request a reset link from `/forgot-password`
+- the reset form lives at `/reset-password?token=...`
+- reset tokens are single-use and expire automatically
+
+Current implementation note:
+- reset link delivery is scaffolded in-app and currently returns a ready-to-use reset link in the server action response
+- the next production step is wiring this to a real email provider
 
 ## Deployment
 
 Document deployment steps in `docs/deploy-notes.md`.
 
-## Milestone 6 scaffolding
+## Database mode
 
-The repo now includes Prisma/Postgres scaffolding for deployment readiness.
+Quote Chaser now runs in **database-only** mode.
 
-Current transition behavior:
-- without `DATABASE_URL`, Quote Chaser still uses `data/quotes.json`
-- with `DATABASE_URL`, the app reads/writes through the Prisma-backed repository
+Current behavior:
+- `DATABASE_URL` is required
+- the app reads/writes through the Prisma-backed repository
 - `npm run prisma:generate` generates the client
-- `npm run prisma:migrate` applies local migrations
-- `npm run prisma:seed` seeds the database from `data/quotes.json`
+- `npm run prisma:migrate` applies local migrations during development
+- production deploys should use `npx prisma migrate deploy`
 
-Initial migration status:
-- the repo now includes an initial SQL migration at `prisma/migrations/20260401090500_init/migration.sql`
-- applying it still requires a real Postgres `DATABASE_URL`
+Migration status:
+- the repo includes an initial SQL migration at `prisma/migrations/20260401090500_init/migration.sql`
+- applying it requires a real Postgres `DATABASE_URL`
 - once a database is available, the next steps are:
   1. set `DATABASE_URL`
-  2. run `npm run prisma:migrate`
-  3. run `npm run prisma:seed`
+  2. run `npx prisma migrate deploy`
+  3. verify app flows against the database

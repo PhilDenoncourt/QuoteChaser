@@ -1,10 +1,6 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { dbEnabled, getPrismaClient } from '@/lib/db';
+import { getPrismaClient } from '@/lib/db';
 import type { Activity, ActivityType, Quote, QuoteStatus } from '@/lib/domain';
-
-const quotesFilePath = path.join(process.cwd(), 'data', 'quotes.json');
 const defaultOrganization = {
   id: 'org_migrated_demo',
   name: 'Migrated Demo Organization',
@@ -86,6 +82,21 @@ export type SessionRecord = {
   expiresAt: Date;
 };
 
+export type PasswordResetTokenRecordInput = {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+};
+
+export type PasswordResetTokenRecord = {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+};
+
 export type CreateUserWithOrganizationInput = {
   userId: string;
   organizationId: string;
@@ -124,68 +135,6 @@ function fromDbQuote(record: DbQuoteRecord): Quote {
 
 function quoteOrder(a: Quote, b: Quote) {
   return new Date(b.dateSent).getTime() - new Date(a.dateSent).getTime();
-}
-
-async function readFileQuotes(): Promise<Quote[]> {
-  const raw = await fs.readFile(quotesFilePath, 'utf8');
-  return (JSON.parse(raw) as Quote[]).sort(quoteOrder);
-}
-
-async function writeFileQuotes(quotes: Quote[]) {
-  await fs.writeFile(quotesFilePath, JSON.stringify([...quotes].sort(quoteOrder), null, 2) + '\n', 'utf8');
-}
-
-async function mutateFileQuotes<T>(mutator: (quotes: Quote[]) => T | Promise<T>): Promise<T> {
-  const quotes = await readFileQuotes();
-  const result = await mutator(quotes);
-  await writeFileQuotes(quotes);
-  return result;
-}
-
-function createFileTransaction(quotes: Quote[]): QuoteTransaction {
-  return {
-    async readQuoteById(_organizationId: string, id: string) {
-      return quotes.find((quote) => quote.id === id) ?? null;
-    },
-    async createQuoteRecord(_organizationId: string, quote: Quote) {
-      quotes.unshift(quote);
-      return quote;
-    },
-    async updateQuoteFieldsRecord(_organizationId: string, id: string, patch: QuoteFieldsPatch) {
-      const index = quotes.findIndex((quote) => quote.id === id);
-      if (index === -1) return null;
-
-      quotes[index] = {
-        ...quotes[index],
-        ...patch,
-      };
-
-      return quotes[index];
-    },
-    async appendQuoteActivityRecord(_organizationId: string, id: string, activity: Activity) {
-      const index = quotes.findIndex((quote) => quote.id === id);
-      if (index === -1) return null;
-
-      quotes[index] = {
-        ...quotes[index],
-        activities: [...quotes[index].activities, activity],
-      };
-
-      return quotes[index];
-    },
-    async updateQuoteStatusRecord(_organizationId: string, id: string, update: QuoteStatusUpdate) {
-      const index = quotes.findIndex((quote) => quote.id === id);
-      if (index === -1) return null;
-
-      quotes[index] = {
-        ...quotes[index],
-        status: update.status,
-        ...(update.nextFollowUpAt !== undefined ? { nextFollowUpAt: update.nextFollowUpAt } : {}),
-      };
-
-      return quotes[index];
-    },
-  };
 }
 
 async function readDbQuotesForOrganization(organizationId: string): Promise<Quote[]> {
@@ -288,180 +237,158 @@ function toDbQuotePatch(patch: QuoteFieldsPatch) {
 }
 
 export async function readQuotesStore(): Promise<Quote[]> {
-  return dbEnabled() ? readDbQuotesForOrganization(defaultOrganization.id) : readFileQuotes();
+  return readDbQuotesForOrganization(defaultOrganization.id);
 }
 
 export async function readQuotesStoreForOrganization(organizationId: string): Promise<Quote[]> {
-  return dbEnabled() ? readDbQuotesForOrganization(organizationId) : readFileQuotes();
+  return readDbQuotesForOrganization(organizationId);
 }
 
 export async function readQuoteById(id: string): Promise<Quote | null> {
-  if (dbEnabled()) {
-    return getDbQuoteForOrganization(id, defaultOrganization.id);
-  }
-
-  const quotes = await readFileQuotes();
-  return quotes.find((quote) => quote.id === id) ?? null;
+  return getDbQuoteForOrganization(id, defaultOrganization.id);
 }
 
 export async function readQuoteByIdForOrganization(id: string, organizationId: string): Promise<Quote | null> {
-  if (dbEnabled()) {
-    return getDbQuoteForOrganization(id, organizationId);
-  }
-
-  const quotes = await readFileQuotes();
-  return quotes.find((quote) => quote.id === id) ?? null;
+  return getDbQuoteForOrganization(id, organizationId);
 }
 
 export async function withQuoteTransaction<T>(callback: (tx: QuoteTransaction) => Promise<T>): Promise<T> {
-  if (dbEnabled()) {
-    const prisma = getPrismaClient();
-    return prisma.$transaction(async (dbTx) => {
-      const tx: QuoteTransaction = {
-        async readQuoteById(organizationId: string, id: string) {
-          const quote = await dbTx.quote.findFirst({
-            where: { id, organizationId },
-            include: {
-              activities: {
-                where: { organizationId },
-                orderBy: { createdAt: 'asc' },
-              },
+  const prisma = getPrismaClient();
+  return prisma.$transaction(async (dbTx) => {
+    const tx: QuoteTransaction = {
+      async readQuoteById(organizationId: string, id: string) {
+        const quote = await dbTx.quote.findFirst({
+          where: { id, organizationId },
+          include: {
+            activities: {
+              where: { organizationId },
+              orderBy: { createdAt: 'asc' },
             },
-          });
+          },
+        });
 
-          return quote ? fromDbQuote(quote) : null;
-        },
-        async createQuoteRecord(organizationId: string, quote: Quote) {
-          const organization = await dbTx.organization.findUnique({
-            where: { id: organizationId },
-          });
+        return quote ? fromDbQuote(quote) : null;
+      },
+      async createQuoteRecord(organizationId: string, quote: Quote) {
+        const organization = await dbTx.organization.findUnique({
+          where: { id: organizationId },
+        });
 
-          if (!organization) {
-            throw new Error('Organization must exist before creating quote records in database mode.');
-          }
+        if (!organization) {
+          throw new Error('Organization must exist before creating quote records.');
+        }
 
-          await dbTx.quote.create({
-            data: {
-              id: quote.id,
-              organizationId,
-              customerName: quote.customerName,
-              contactName: quote.contactName ?? null,
-              phone: quote.phone ?? null,
-              email: quote.email ?? null,
-              jobAddress: quote.jobAddress,
-              estimateAmount: quote.estimateAmount,
-              dateSent: new Date(quote.dateSent),
-              status: quote.status,
-              nextFollowUpAt: quote.nextFollowUpAt ? new Date(quote.nextFollowUpAt) : null,
-              lastContactAt: quote.lastContactAt ? new Date(quote.lastContactAt) : null,
-              notes: quote.notes ?? null,
-              activities: {
-                create: quote.activities.map((activity) => ({
-                  id: activity.id,
-                  organizationId,
-                  type: activity.type,
-                  summary: activity.summary,
-                  createdAt: new Date(activity.createdAt),
-                })),
-              },
+        await dbTx.quote.create({
+          data: {
+            id: quote.id,
+            organizationId,
+            customerName: quote.customerName,
+            contactName: quote.contactName ?? null,
+            phone: quote.phone ?? null,
+            email: quote.email ?? null,
+            jobAddress: quote.jobAddress,
+            estimateAmount: quote.estimateAmount,
+            dateSent: new Date(quote.dateSent),
+            status: quote.status,
+            nextFollowUpAt: quote.nextFollowUpAt ? new Date(quote.nextFollowUpAt) : null,
+            lastContactAt: quote.lastContactAt ? new Date(quote.lastContactAt) : null,
+            notes: quote.notes ?? null,
+            activities: {
+              create: quote.activities.map((activity) => ({
+                id: activity.id,
+                organizationId,
+                type: activity.type,
+                summary: activity.summary,
+                createdAt: new Date(activity.createdAt),
+              })),
             },
-          });
+          },
+        });
 
-          return quote;
-        },
-        async updateQuoteFieldsRecord(organizationId: string, id: string, patch: QuoteFieldsPatch) {
-          const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
-          if (!existing) return null;
+        return quote;
+      },
+      async updateQuoteFieldsRecord(organizationId: string, id: string, patch: QuoteFieldsPatch) {
+        const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
+        if (!existing) return null;
 
-          await dbTx.quote.update({
-            where: { id },
-            data: toDbQuotePatch(patch),
-          });
+        await dbTx.quote.update({
+          where: { id },
+          data: toDbQuotePatch(patch),
+        });
 
-          const updated = await dbTx.quote.findFirst({
-            where: { id, organizationId },
-            include: {
-              activities: {
-                where: { organizationId },
-                orderBy: { createdAt: 'asc' },
-              },
+        const updated = await dbTx.quote.findFirst({
+          where: { id, organizationId },
+          include: {
+            activities: {
+              where: { organizationId },
+              orderBy: { createdAt: 'asc' },
             },
-          });
+          },
+        });
 
-          return updated ? fromDbQuote(updated) : null;
-        },
-        async appendQuoteActivityRecord(organizationId: string, id: string, activity: Activity) {
-          const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
-          if (!existing) return null;
+        return updated ? fromDbQuote(updated) : null;
+      },
+      async appendQuoteActivityRecord(organizationId: string, id: string, activity: Activity) {
+        const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
+        if (!existing) return null;
 
-          await dbTx.activity.create({
-            data: {
-              id: activity.id,
-              organizationId,
-              quoteId: id,
-              type: activity.type,
-              summary: activity.summary,
-              createdAt: new Date(activity.createdAt),
+        await dbTx.activity.create({
+          data: {
+            id: activity.id,
+            organizationId,
+            quoteId: id,
+            type: activity.type,
+            summary: activity.summary,
+            createdAt: new Date(activity.createdAt),
+          },
+        });
+
+        const updated = await dbTx.quote.findFirst({
+          where: { id, organizationId },
+          include: {
+            activities: {
+              where: { organizationId },
+              orderBy: { createdAt: 'asc' },
             },
-          });
+          },
+        });
 
-          const updated = await dbTx.quote.findFirst({
-            where: { id, organizationId },
-            include: {
-              activities: {
-                where: { organizationId },
-                orderBy: { createdAt: 'asc' },
-              },
+        return updated ? fromDbQuote(updated) : null;
+      },
+      async updateQuoteStatusRecord(organizationId: string, id: string, update: QuoteStatusUpdate) {
+        const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
+        if (!existing) return null;
+
+        await dbTx.quote.update({
+          where: { id },
+          data: {
+            status: update.status,
+            ...(update.nextFollowUpAt !== undefined
+              ? { nextFollowUpAt: update.nextFollowUpAt ? new Date(update.nextFollowUpAt) : null }
+              : {}),
+          },
+        });
+
+        const updated = await dbTx.quote.findFirst({
+          where: { id, organizationId },
+          include: {
+            activities: {
+              where: { organizationId },
+              orderBy: { createdAt: 'asc' },
             },
-          });
+          },
+        });
 
-          return updated ? fromDbQuote(updated) : null;
-        },
-        async updateQuoteStatusRecord(organizationId: string, id: string, update: QuoteStatusUpdate) {
-          const existing = await dbTx.quote.findFirst({ where: { id, organizationId } });
-          if (!existing) return null;
+        return updated ? fromDbQuote(updated) : null;
+      },
+    };
 
-          await dbTx.quote.update({
-            where: { id },
-            data: {
-              status: update.status,
-              ...(update.nextFollowUpAt !== undefined
-                ? { nextFollowUpAt: update.nextFollowUpAt ? new Date(update.nextFollowUpAt) : null }
-                : {}),
-            },
-          });
-
-          const updated = await dbTx.quote.findFirst({
-            where: { id, organizationId },
-            include: {
-              activities: {
-                where: { organizationId },
-                orderBy: { createdAt: 'asc' },
-              },
-            },
-          });
-
-          return updated ? fromDbQuote(updated) : null;
-        },
-      };
-
-      return callback(tx);
-    });
-  }
-
-  return mutateFileQuotes(async (quotes) => {
-    const tx = createFileTransaction(quotes);
     return callback(tx);
   });
 }
 
 export async function writeQuotesStore(quotes: Quote[]) {
-  if (dbEnabled()) {
-    await writeDbQuotes(quotes);
-    return;
-  }
-
-  await writeFileQuotes(quotes);
+  await writeDbQuotes(quotes);
 }
 
 export async function createQuoteRecordForOrganization(organizationId: string, quote: Quote) {
@@ -488,20 +415,7 @@ export async function generateActivityId() {
   return `A-${randomUUID()}`;
 }
 
-export async function seedDatabaseFromFile() {
-  if (!dbEnabled()) {
-    throw new Error('DATABASE_URL is required to seed the Postgres database.');
-  }
-
-  const quotes = await readFileQuotes();
-  await writeDbQuotes(quotes);
-}
-
 export async function backfillDefaultOrganizationForExistingData() {
-  if (!dbEnabled()) {
-    throw new Error('DATABASE_URL is required to backfill the Postgres database.');
-  }
-
   const prisma = getPrismaClient();
   const organization = await ensureDefaultOrganization();
 
@@ -527,10 +441,6 @@ export async function backfillDefaultOrganizationForExistingData() {
 }
 
 export async function getUserByEmail(email: string): Promise<RepositoryUser | null> {
-  if (!dbEnabled()) {
-    return null;
-  }
-
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({
     where: { email },
@@ -540,10 +450,6 @@ export async function getUserByEmail(email: string): Promise<RepositoryUser | nu
 }
 
 export async function getCurrentMembershipForUser(userId: string): Promise<RepositoryMembership | null> {
-  if (!dbEnabled()) {
-    return null;
-  }
-
   const prisma = getPrismaClient();
   const membership = await prisma.membership.findFirst({
     where: { userId },
@@ -559,10 +465,6 @@ export async function getCurrentMembershipForUser(userId: string): Promise<Repos
 }
 
 export async function getUserWithCurrentMembership(userId: string) {
-  if (!dbEnabled()) {
-    return null;
-  }
-
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -591,10 +493,6 @@ export async function getUserWithCurrentMembership(userId: string) {
 }
 
 export async function createUserWithOrganization(input: CreateUserWithOrganizationInput) {
-  if (!dbEnabled()) {
-    throw new Error('DATABASE_URL is required to create users and organizations.');
-  }
-
   const prisma = getPrismaClient();
   return prisma.$transaction(async (tx) => {
     const organization = await tx.organization.create({
@@ -635,10 +533,6 @@ export async function createUserWithOrganization(input: CreateUserWithOrganizati
 }
 
 export async function upsertSessionRecord(input: SessionRecordInput) {
-  if (!dbEnabled()) {
-    throw new Error('DATABASE_URL is required to persist sessions.');
-  }
-
   const prisma = getPrismaClient();
 
   const membership = await prisma.membership.findFirst({
@@ -664,10 +558,6 @@ export async function upsertSessionRecord(input: SessionRecordInput) {
 }
 
 export async function getSessionByTokenHash(tokenHash: string): Promise<SessionRecord | null> {
-  if (!dbEnabled()) {
-    return null;
-  }
-
   const prisma = getPrismaClient();
   const session = await prisma.session.findUnique({
     where: { tokenHash },
@@ -702,12 +592,63 @@ export async function getSessionByTokenHash(tokenHash: string): Promise<SessionR
 }
 
 export async function deleteSessionByTokenHash(tokenHash: string) {
-  if (!dbEnabled()) {
-    return;
-  }
-
   const prisma = getPrismaClient();
   await prisma.session.deleteMany({
     where: { tokenHash },
+  });
+}
+
+export async function createPasswordResetTokenRecord(input: PasswordResetTokenRecordInput) {
+  const prisma = getPrismaClient();
+
+  await prisma.passwordResetToken.create({
+    data: {
+      id: input.id,
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      expiresAt: input.expiresAt,
+    },
+  });
+}
+
+export async function getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetTokenRecord | null> {
+  const prisma = getPrismaClient();
+  return prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+  });
+}
+
+export async function markPasswordResetTokenUsed(id: string) {
+  const prisma = getPrismaClient();
+  await prisma.passwordResetToken.update({
+    where: { id },
+    data: { usedAt: new Date() },
+  });
+}
+
+export async function deleteExpiredPasswordResetTokens() {
+  const prisma = getPrismaClient();
+  await prisma.passwordResetToken.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { lte: new Date() } },
+        { usedAt: { not: null } },
+      ],
+    },
+  });
+}
+
+export async function updateUserPassword(userId: string, passwordHash: string) {
+  const prisma = getPrismaClient();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+}
+
+export async function deleteSessionsForUser(userId: string) {
+  const prisma = getPrismaClient();
+  await prisma.session.deleteMany({
+    where: { userId },
   });
 }

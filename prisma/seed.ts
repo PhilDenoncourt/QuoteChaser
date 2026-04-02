@@ -1,8 +1,5 @@
-import { seedDatabaseFromFile } from '@/lib/repository';
-
 async function main() {
-  await seedDatabaseFromFile();
-  console.log('Seeded database from data/quotes.json into the default organization.');
+  console.log('No seed action is configured. Quote Chaser now runs in database-only mode without file-import seeding.');
 }
 
 main().catch((error) => {

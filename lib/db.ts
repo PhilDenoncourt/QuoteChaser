@@ -10,17 +10,13 @@ declare global {
 }
 
 export function dbEnabled() {
-  return Boolean(process.env.DATABASE_URL);
+  return true;
 }
 
 export function getPrismaClient() {
-  if (!dbEnabled()) {
-    throw new Error('DATABASE_URL is not configured. Prisma client should only be used when database mode is enabled.');
-  }
-
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error('DATABASE_URL is not configured.');
+    throw new Error('DATABASE_URL is required. Quote Chaser now runs in database-only mode.');
   }
 
   const pool = global.__quoteChaserPgPool ?? new Pool({
