@@ -10,4 +10,8 @@ export const appConfig = {
       return Boolean(this.apiKey);
     },
   },
+  auth: {
+    resetTokenTtlMinutes: Number.parseInt(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES ?? '60', 10) || 60,
+    appBaseUrl: process.env.APP_BASE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '',
+  },
 } as const;

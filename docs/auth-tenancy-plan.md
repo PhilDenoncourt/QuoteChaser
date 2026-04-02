@@ -26,7 +26,6 @@ Quote Chaser should support:
 - route protection for app pages and server actions
 
 ### Out of scope for MVP
-- password reset
 - email verification
 - magic links
 - Google OAuth
